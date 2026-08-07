@@ -34,7 +34,7 @@ export const keys = {
 export function useAccount() {
   return useQuery({
     queryKey: keys.account,
-    queryFn: api.currentUser,
+    queryFn: api.currentAccount,
   });
 }
 

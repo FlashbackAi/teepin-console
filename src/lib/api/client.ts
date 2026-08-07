@@ -61,6 +61,22 @@ const ACCESS_TOKEN_KEY = "teepin-access-token";
 const REFRESH_TOKEN_KEY = "teepin-refresh-token";
 const API_KEY_KEY = "teepin-api-key";
 
+/**
+ * Everything that belongs to a signed-in session.
+ *
+ * Listed here rather than at each call site so `clear()` cannot fall out
+ * of step when a key is added — a leftover key means the next person to
+ * sign in on this machine inherits some of the previous account's state.
+ * The theme preference is deliberately absent: it belongs to the device,
+ * not the session.
+ */
+const SESSION_KEYS = [
+  ACCESS_TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  API_KEY_KEY,
+  "teepin-active-project",
+];
+
 export const tokens = {
   get access() {
     if (typeof window === "undefined") return null;
@@ -90,9 +106,9 @@ export const tokens = {
     localStorage.setItem(API_KEY_KEY, key);
   },
   clear() {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(API_KEY_KEY);
+    for (const key of SESSION_KEYS) {
+      localStorage.removeItem(key);
+    }
   },
 };
 
@@ -170,7 +186,10 @@ export const api = {
       anonymous: true,
     }),
 
-  currentUser: () => request<Account>("/v1/accounts"),
+  // /v1/accounts/current, not /v1/accounts — the latter only accepts
+  // POST (registration), so a GET there 404s and the console renders
+  // with no account name.
+  currentAccount: () => request<Account>("/v1/accounts/current"),
 
   // -------------------------------------------------------------------
   // Projects

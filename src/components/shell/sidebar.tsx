@@ -1,21 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Boxes,
   CreditCard,
   Cpu,
   Database,
   LifeBuoy,
+  LogOut,
   Moon,
   Package,
   Settings,
   Sun,
   BookOpen,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { cn, formatAccountNumber } from "@/lib/utils";
+import { tokens } from "@/lib/api/client";
 import { useTheme } from "@/components/theme-provider";
 
 /**
@@ -136,6 +139,7 @@ export function Sidebar({
           Support
         </a>
         <ThemeToggle />
+        <SignOut />
       </div>
     </aside>
   );
@@ -186,6 +190,38 @@ function NavLink({
     <Link href={href} className={className}>
       {content}
     </Link>
+  );
+}
+
+function SignOut() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const signOut = () => {
+    // Clear the cache before navigating. React Query would otherwise
+    // hold this account's instances, projects and billing in memory, and
+    // the next person to sign in on this machine would see a flash of
+    // the previous account's data before their own queries resolve.
+    queryClient.clear();
+
+    // Removes the JWT, the refresh token AND the project API key. Leaving
+    // the API key behind would let a signed-out browser keep calling
+    // compute endpoints — it authenticates independently of the session.
+    tokens.clear();
+
+    // replace, not push: the back button must not return to a page that
+    // renders account data from a cleared session.
+    router.replace("/login");
+  };
+
+  return (
+    <button
+      onClick={signOut}
+      className="text-muted-foreground hover:text-foreground flex h-7 w-full items-center gap-2 rounded px-2 text-xs"
+    >
+      <LogOut className="h-3.5 w-3.5" />
+      Sign out
+    </button>
   );
 }
 
