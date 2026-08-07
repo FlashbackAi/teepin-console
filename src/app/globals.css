@@ -1,26 +1,151 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------
+   TEEPIN Console — theme tokens
+   ---------------------------------------------------------------------
+   Light and dark are designed together, not "dark mode bolted on".
+   Toggled by a `dark` class on <html>, so switching themes is one class
+   change with no React re-render.
+
+   NEUTRAL GRAYS, NO HUE TINT. Blue-tinted near-blacks are a Tailwind-era
+   convention that makes an ops tool look like a consumer app; io.net and
+   Latitude.sh both use true neutrals.
+
+   Colour is reserved for MEANING — status dots, and later chart series.
+   There is no signature accent. At 3am during an incident the one thing
+   that must be instantly readable is whether an instance is running or
+   failed, and a brand colour competing for attention costs more than it
+   earns.
+   --------------------------------------------------------------------- */
+
+@theme {
+  /* Fonts. Tabular numerals for money, monospace for identifiers —
+     both set on the elements that need them, not globally. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Hairline borders: 0.5px, not 1px. The single strongest signal of a
+     considered interface — 1px reads as a wireframe by comparison. */
+  --spacing-hairline: 0.5px;
+
+  /* 32px table rows: dense enough to scan 40 instances without
+     scrolling, tall enough to click accurately. */
+  --spacing-row: 2rem;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light */
+  --background: 0 0% 100%;
+  --card: 0 0% 100%;
+  --muted: 0 0% 96%;
+  --foreground: 0 0% 7%;
+  --muted-foreground: 0 0% 45%;
+  --border: 0 0% 90%;
+
+  /* Primary is an inverted plain button — near-black on light. It is
+     unmissable precisely because nothing else on screen is filled. */
+  --primary: 0 0% 12%;
+  --primary-foreground: 0 0% 98%;
+
+  /* Semantic colours: identical hues in both themes, lightness tuned
+     per theme so a green dot reads as the same green either way. */
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --destructive: 0 72% 51%;
+  --info: 217 91% 60%;
+
+  /* Focus ring. Visible, neutral, never removed — keyboard users are
+     not a rounding error. */
+  --ring: 0 0% 45%;
+}
+
+.dark {
+  /* Dark — neutral near-black, NOT navy */
+  --background: 0 0% 6%;
+  --card: 0 0% 9%;
+  --muted: 0 0% 15%;
+  --foreground: 0 0% 96%;
+  --muted-foreground: 0 0% 63%;
+  --border: 0 0% 18%;
+
+  --primary: 0 0% 92%;
+  --primary-foreground: 0 0% 8%;
+
+  /* Slightly lifted lightness so saturated colours do not vibrate
+     against a near-black background. */
+  --success: 142 69% 52%;
+  --warning: 38 92% 58%;
+  --destructive: 0 72% 60%;
+  --info: 217 91% 68%;
+
+  --ring: 0 0% 63%;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: hsl(var(--background));
+  --color-card: hsl(var(--card));
+  --color-muted: hsl(var(--muted));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-destructive: hsl(var(--destructive));
+  --color-info: hsl(var(--info));
+  --color-ring: hsl(var(--ring));
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: hsl(var(--border));
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  /* Slightly tighter than browser default: dense data reads better and
+     it matches the 32px row rhythm. */
+  font-size: 0.875rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Money and any aligned numeric column. Tabular figures keep digits in
+   vertical register so a column of costs can be compared at a glance. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Identifiers — instance IDs, API keys, TRNs. Monospace signals
+   "copy this exactly" and makes transposed characters visible. */
+.identifier {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+/* Hairline rules. Tailwind's border utilities are 1px minimum, so the
+   0.5px hairline the design calls for needs its own utility. */
+.hairline {
+  border-width: 0.5px;
+}
+.hairline-t {
+  border-top-width: 0.5px;
+}
+.hairline-b {
+  border-bottom-width: 0.5px;
+}
+
+/* No motion in navigation: instant state changes. Animation is reserved
+   for where it carries meaning (a status changing, a toast arriving),
+   never for moving between pages. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
