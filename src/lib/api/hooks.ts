@@ -7,7 +7,11 @@ import {
 } from "@tanstack/react-query";
 
 import { api, ApiError, tokens } from "./client";
-import type { CreateInstanceRequest, Instance } from "./types";
+import type {
+  CreateInstanceRequest,
+  Instance,
+  UpdateProjectRequest,
+} from "./types";
 
 /**
  * React Query hooks over the API client.
@@ -50,6 +54,23 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (body: { name: string; description?: string }) =>
       api.createProject(body),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useUpdateProject(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateProjectRequest) =>
+      api.updateProject(projectId, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useDeleteProject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => api.deleteProject(projectId),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
   });
 }

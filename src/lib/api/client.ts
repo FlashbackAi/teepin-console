@@ -11,6 +11,7 @@ import type {
   LoginResponse,
   Project,
   RegisterResponse,
+  UpdateProjectRequest,
 } from "./types";
 
 const BASE_URL =
@@ -104,6 +105,10 @@ export const tokens = {
   },
   setApiKey(key: string) {
     localStorage.setItem(API_KEY_KEY, key);
+  },
+  /** Drop the project API key, e.g. when switching projects. */
+  clearApiKey() {
+    localStorage.removeItem(API_KEY_KEY);
   },
   clear() {
     for (const key of SESSION_KEYS) {
@@ -199,6 +204,14 @@ export const api = {
 
   createProject: (body: { name: string; description?: string }) =>
     request<Project>("/v1/projects", { method: "POST", body }),
+
+  updateProject: (id: string, body: UpdateProjectRequest) =>
+    request<Project>(`/v1/projects/${id}`, { method: "PATCH", body }),
+
+  deleteProject: (id: string) =>
+    request<{ message: string; id: string }>(`/v1/projects/${id}`, {
+      method: "DELETE",
+    }),
 
   createApiKey: (projectId: string, body: { name: string }) =>
     request<CreatedAPIKey>(`/v1/projects/${projectId}/api-keys`, {

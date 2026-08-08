@@ -28,7 +28,7 @@ export default function AppLayout({
 function Shell({ children }: { children: React.ReactNode }) {
   const account = useAccount();
   const billing = useBillingSummary();
-  const { project } = useActiveProject();
+  const { project, projects, select } = useActiveProject();
   const { ready } = useEnsureApiKey(project?.id);
   // The sidebar's instance count needs the project API key too, so it
   // waits rather than firing an unauthenticated request on every page.
@@ -43,7 +43,9 @@ function Shell({ children }: { children: React.ReactNode }) {
       <Sidebar
         accountName={account.data?.display_name ?? "…"}
         accountNumber={account.data?.account_number ?? ""}
-        projectName={project?.name ?? "No project"}
+        projects={projects}
+        activeProject={project}
+        onSelectProject={select}
         instanceCount={running}
         monthToDate={
           billing.data ? formatCost(billing.data.total_cost) : undefined

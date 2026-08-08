@@ -19,7 +19,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { cn, formatAccountNumber } from "@/lib/utils";
 import { tokens } from "@/lib/api/client";
+import { clearActiveProject } from "@/lib/active-project";
+import type { Project } from "@/lib/api/types";
 import { useTheme } from "@/components/theme-provider";
+import { ProjectSwitcher } from "@/components/shell/project-switcher";
 
 /**
  * The navigation shell.
@@ -48,13 +51,17 @@ type NavItem = {
 export function Sidebar({
   accountName,
   accountNumber,
-  projectName,
+  projects,
+  activeProject,
+  onSelectProject,
   instanceCount,
   monthToDate,
 }: {
   accountName: string;
   accountNumber: string;
-  projectName: string;
+  projects: Project[];
+  activeProject?: Project;
+  onSelectProject: (id: string) => void;
   instanceCount?: number;
   monthToDate?: string;
 }) {
@@ -70,7 +77,13 @@ export function Sidebar({
     { label: "CPU compute", icon: Cpu, soon: true },
     { label: "Storage", icon: Database, soon: true },
     { label: "Registry", href: "/registry", icon: Package },
-    { label: "Project settings", href: "/settings/project", icon: Settings },
+    // Settings belong to the project being viewed, so the link carries
+    // its ID rather than pointing at a page that has to guess.
+    {
+      label: "Project settings",
+      href: activeProject ? `/projects/${activeProject.id}` : undefined,
+      icon: Settings,
+    },
   ];
 
   const accountItems: NavItem[] = [
@@ -100,7 +113,13 @@ export function Sidebar({
           active={pathname.startsWith("/projects")}
         />
 
-        <SectionLabel>{projectName}</SectionLabel>
+        <div className="mt-4 mb-1 px-1">
+          <ProjectSwitcher
+            projects={projects}
+            active={activeProject}
+            onSelect={onSelectProject}
+          />
+        </div>
 
         {projectItems.map((item) => (
           <NavLink
@@ -142,14 +161,6 @@ export function Sidebar({
         <SignOut />
       </div>
     </aside>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-muted-foreground mt-4 mb-1 truncate px-2 text-[11px] font-medium tracking-wide uppercase">
-      {children}
-    </div>
   );
 }
 
@@ -208,6 +219,10 @@ function SignOut() {
     // the API key behind would let a signed-out browser keep calling
     // compute endpoints — it authenticates independently of the session.
     tokens.clear();
+
+    // The project store is module-level and outlives navigation, so it
+    // has to be reset explicitly.
+    clearActiveProject();
 
     // replace, not push: the back button must not return to a page that
     // renders account data from a cleared session.

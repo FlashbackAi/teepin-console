@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Settings } from "lucide-react";
+
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
@@ -73,13 +76,25 @@ export default function ProjectsPage() {
               </THead>
               <TBody>
                 {projects.map((project) => (
-                  <TR key={project.id}>
+                  // The whole row selects the project. A dedicated
+                  // "Switch to" button made the common action the
+                  // smallest target on the row.
+                  <TR
+                    key={project.id}
+                    onClick={() => select(project.id)}
+                    className="cursor-pointer"
+                  >
                     <TD>
                       {active?.id === project.id && (
                         <Check className="text-foreground h-3.5 w-3.5" />
                       )}
                     </TD>
-                    <TD className="font-medium">{project.name}</TD>
+                    <TD>
+                      <span className="inline-flex items-center gap-2">
+                        <span className="font-medium">{project.name}</span>
+                        <EnvironmentBadge project={project} />
+                      </span>
+                    </TD>
                     <TD>
                       <span className="identifier text-muted-foreground">
                         {project.slug}
@@ -92,15 +107,17 @@ export default function ProjectsPage() {
                       {timeAgo(project.created_at)}
                     </TD>
                     <TD className="text-right">
-                      {active?.id !== project.id && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => select(project.id)}
-                        >
-                          Switch to
-                        </Button>
-                      )}
+                      <Link
+                        href={`/projects/${project.id}`}
+                        // Without this the row's own click handler also
+                        // fires and switches projects on the way to
+                        // settings — surprising, and easy to miss.
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`${project.name} settings`}
+                        className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded"
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </Link>
                     </TD>
                   </TR>
                 ))}

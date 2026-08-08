@@ -56,6 +56,8 @@ export interface LoginResponse {
 // Projects and keys
 // ---------------------------------------------------------------------
 
+export type Environment = "dev" | "staging" | "prod";
+
 export interface Project {
   id: string;
   account_id: string;
@@ -63,8 +65,17 @@ export interface Project {
   name: string;
   slug: string;
   description: string;
+  /** Empty when the customer has not declared one. */
+  environment?: Environment | "";
   created_at: string;
   updated_at: string;
+}
+
+export interface UpdateProjectRequest {
+  /** Omitted fields are left unchanged — not cleared. */
+  name?: string;
+  description?: string;
+  environment?: Environment | "";
 }
 
 export interface APIKey {
