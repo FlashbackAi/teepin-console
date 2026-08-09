@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
+import { Wordmark } from "@/components/ui/wordmark";
 import { cn } from "@/lib/utils";
 import { errorMessage, useLogin, useRegister } from "@/lib/api/hooks";
 import type { AccountType } from "@/lib/api/types";
@@ -50,10 +51,8 @@ export default function SignupPage() {
     <div className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8">
-          <div className="text-foreground text-lg font-medium tracking-tight">
-            TEEPIN
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
+          <Wordmark className="h-9" />
+          <p className="text-muted-foreground mt-3 text-sm">
             Create your account
           </p>
         </div>

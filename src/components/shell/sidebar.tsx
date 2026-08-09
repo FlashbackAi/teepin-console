@@ -23,6 +23,7 @@ import { clearActiveProject } from "@/lib/active-project";
 import type { Project } from "@/lib/api/types";
 import { useTheme } from "@/components/theme-provider";
 import { ProjectSwitcher } from "@/components/shell/project-switcher";
+import { Wordmark } from "@/components/ui/wordmark";
 
 /**
  * The navigation shell.
@@ -97,6 +98,7 @@ export function Sidebar({
           it to support, and hunting for it during an incident is a
           small, avoidable indignity. */}
       <div className="hairline-b border-border px-3 py-3">
+        <Wordmark className="mb-3 h-8" />
         <div className="text-foreground truncate text-sm font-medium">
           {accountName}
         </div>

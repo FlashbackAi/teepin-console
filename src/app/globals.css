@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Bind the `dark:` variant to our .dark class.
+ *
+ * Tailwind 4 defaults `dark:` to prefers-color-scheme, which ignores the
+ * class the theme toggle sets — so every `dark:` utility would follow the
+ * OS rather than the user's choice in this app. The token blocks below
+ * work regardless (they are plain CSS keyed off `.dark`), which is why
+ * the theme appeared to work while `dark:` utilities silently did not.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ---------------------------------------------------------------------
    TEEPIN Console — theme tokens
    ---------------------------------------------------------------------

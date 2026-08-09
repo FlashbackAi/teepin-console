@@ -8,8 +8,10 @@ import {
 
 import { api, ApiError, tokens } from "./client";
 import type {
+  ConvertToOrganizationRequest,
   CreateInstanceRequest,
   Instance,
+  UpdateAccountRequest,
   UpdateProjectRequest,
 } from "./types";
 
@@ -23,6 +25,7 @@ import type {
 
 export const keys = {
   account: ["account"] as const,
+  accountUsers: ["account-users"] as const,
   projects: ["projects"] as const,
   apiKeys: (projectId: string) => ["api-keys", projectId] as const,
   instances: ["instances"] as const,
@@ -39,6 +42,35 @@ export function useAccount() {
   return useQuery({
     queryKey: keys.account,
     queryFn: api.currentAccount,
+  });
+}
+
+export function useUpdateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateAccountRequest) => api.updateAccount(body),
+    onSuccess: (account) => {
+      // Write the response straight into the cache rather than
+      // invalidating: the sidebar shows the account name, and a refetch
+      // round trip makes a save look slower than it was.
+      client.setQueryData(keys.account, account);
+    },
+  });
+}
+
+export function useConvertToOrganization() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ConvertToOrganizationRequest) =>
+      api.convertToOrganization(body),
+    onSuccess: (account) => client.setQueryData(keys.account, account),
+  });
+}
+
+export function useAccountUsers() {
+  return useQuery({
+    queryKey: keys.accountUsers,
+    queryFn: api.listAccountUsers,
   });
 }
 

@@ -1,6 +1,7 @@
 import type {
   Account,
   BillingSummary,
+  ConvertToOrganizationRequest,
   CreateInstanceRequest,
   CreatedAPIKey,
   APIKey,
@@ -11,7 +12,9 @@ import type {
   LoginResponse,
   Project,
   RegisterResponse,
+  UpdateAccountRequest,
   UpdateProjectRequest,
+  User,
 } from "./types";
 
 const BASE_URL =
@@ -195,6 +198,18 @@ export const api = {
   // POST (registration), so a GET there 404s and the console renders
   // with no account name.
   currentAccount: () => request<Account>("/v1/accounts/current"),
+
+  updateAccount: (body: UpdateAccountRequest) =>
+    request<Account>("/v1/accounts/current", { method: "PATCH", body }),
+
+  convertToOrganization: (body: ConvertToOrganizationRequest) =>
+    request<Account>("/v1/accounts/current/convert-to-organization", {
+      method: "POST",
+      body,
+    }),
+
+  listAccountUsers: () =>
+    request<{ users: User[]; count: number }>("/v1/accounts/current/users"),
 
   // -------------------------------------------------------------------
   // Projects

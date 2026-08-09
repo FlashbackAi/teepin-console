@@ -25,9 +25,32 @@ export interface Account {
   alias: string;
   type: AccountType;
   display_name: string;
+  /** Organization-only; absent on personal accounts until converted. */
+  legal_name?: string;
+  tax_id?: string;
+  billing_email?: string;
+  billing_address?: string;
+  /** ISO 3166-1 alpha-2. */
+  country?: string;
   status: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface UpdateAccountRequest {
+  /** Omitted fields are left unchanged — not cleared. */
+  display_name?: string;
+  legal_name?: string;
+  tax_id?: string;
+  billing_email?: string;
+  billing_address?: string;
+  country?: string;
+}
+
+export interface ConvertToOrganizationRequest {
+  legal_name: string;
+  tax_id?: string;
+  country?: string;
 }
 
 export interface User {
@@ -196,6 +219,59 @@ export interface BillingProject {
   project_name: string;
   cost: number;
   services: BillingService[];
+}
+
+/**
+ * Invoice lifecycle.
+ *
+ * `draft` is editable and NOT owed — it exists so an operator can build
+ * an invoice, check it, and issue it deliberately. Everything after
+ * `open` is a financial record: void rather than delete, always.
+ */
+export type InvoiceStatus =
+  | "draft"
+  | "open"
+  | "paid"
+  | "void"
+  | "uncollectible";
+
+export interface InvoiceLineItem {
+  id?: string;
+  description: string;
+  /** Context for the amount — "120.5 GPU-hours × $1.00". */
+  quantity?: number;
+  unit?: string;
+  unit_price?: number;
+  /** Authoritative: a negotiated flat price has no meaningful quantity. */
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  project_id: string;
+  account_id: string;
+  invoice_number: string;
+  period_start: string;
+  period_end: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: InvoiceStatus;
+  /** "manual" (a person issued it) or "usage" (the meter produced it). */
+  source: "manual" | "usage";
+  currency: string;
+  due_date?: string;
+  notes?: string;
+  paid_at?: string;
+  /** Bill-to details snapshotted at issue time, not read live. */
+  bill_to_name?: string;
+  bill_to_email?: string;
+  bill_to_address?: string;
+  bill_to_tax_id?: string;
+  bill_to_account_number?: string;
+  line_items?: InvoiceLineItem[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BillingSummary {
