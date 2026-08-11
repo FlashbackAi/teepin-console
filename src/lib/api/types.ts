@@ -290,6 +290,19 @@ export interface Invoice {
   pdf_generated_at?: string;
 }
 
+/** Operator-only view of an invoice's charge progress. Fetched separately
+ *  from the invoice body (admin GET /invoices/:id/charge-state) so a
+ *  customer's invoice never carries these retry internals. */
+export interface InvoiceChargeState {
+  /** How many times the invoice has been charged (0 = never attempted). */
+  charge_attempts: number;
+  last_charge_attempt_at?: string;
+  /** Reason the last charge attempt failed (Stripe decline / "no card"). */
+  last_charge_error?: string;
+  /** The PaymentIntent we started for this invoice, if any. */
+  stripe_payment_intent_id?: string;
+}
+
 export interface BillingSummary {
   account_id: string;
   period_start: string;

@@ -1,5 +1,11 @@
 import { ApiError } from "./client";
-import type { Account, CreditTransaction, Invoice, Project } from "./types";
+import type {
+  Account,
+  CreditTransaction,
+  Invoice,
+  InvoiceChargeState,
+  Project,
+} from "./types";
 
 /**
  * Admin API client — the control centre.
@@ -172,6 +178,25 @@ export const admin = {
     adminRequest<Invoice>(`/v1/admin/invoices/${invoiceId}/void`, {
       method: "POST",
     }),
+
+  /** Charge an open usage invoice now, off-session, against the account's
+   *  verified card — an operator "collect now" / manual retry. Runs the
+   *  same unit of work the background collector uses: net of credits,
+   *  idempotent, safe to press twice. Returns the refreshed invoice. A card
+   *  decline is not an error here — it records the failed attempt and
+   *  returns the (still-open) invoice with an incremented attempt count. */
+  chargeInvoice: (invoiceId: string) =>
+    adminRequest<Invoice>(`/v1/admin/invoices/${invoiceId}/charge`, {
+      method: "POST",
+    }),
+
+  /** Operator-only charge progress for an invoice: attempts, last error,
+   *  PaymentIntent id. Kept separate from the invoice body so the
+   *  customer-facing invoice never carries retry internals. */
+  getInvoiceChargeState: (invoiceId: string) =>
+    adminRequest<InvoiceChargeState>(
+      `/v1/admin/invoices/${invoiceId}/charge-state`,
+    ),
 
   getPricing: () =>
     adminRequest<{ vram_price_per_gb_hour: number }>("/v1/admin/pricing"),

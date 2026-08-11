@@ -250,6 +250,7 @@ export default function ControlCenterAccountPage({
                         <InvoiceActions
                           invoiceId={invoice.id}
                           status={invoice.status}
+                          source={invoice.source}
                           accountId={id}
                         />
                       </TD>
@@ -340,10 +341,12 @@ export default function ControlCenterAccountPage({
 function InvoiceActions({
   invoiceId,
   status,
+  source,
   accountId,
 }: {
   invoiceId: string;
   status: string;
+  source: string;
   accountId: string;
 }) {
   const queryClient = useQueryClient();
@@ -363,6 +366,26 @@ function InvoiceActions({
     onSuccess: refresh,
   });
 
+  // Charge progress is loaded only for an open USAGE invoice — the only
+  // state where a charge is pending — so the list does not fire a query per
+  // row for drafts, paid, or manual invoices.
+  const chargeable = status === "open" && source === "usage";
+  const chargeState = useQuery({
+    queryKey: ["admin", "invoice-charge-state", invoiceId],
+    queryFn: () => admin.getInvoiceChargeState(invoiceId),
+    enabled: chargeable,
+  });
+
+  const charge = useMutation({
+    mutationFn: () => admin.chargeInvoice(invoiceId),
+    onSuccess: () => {
+      refresh();
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "invoice-charge-state", invoiceId],
+      });
+    },
+  });
+
   if (status === "draft") {
     return (
       <Button
@@ -376,7 +399,43 @@ function InvoiceActions({
     );
   }
 
+  if (chargeable) {
+    const attempts = chargeState.data?.charge_attempts ?? 0;
+    const lastError = chargeState.data?.last_charge_error;
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={charge.isPending}
+            onClick={() => charge.mutate()}
+          >
+            {charge.isPending ? "Charging…" : "Charge now"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={voidInvoice.isPending}
+            onClick={() => voidInvoice.mutate()}
+          >
+            {voidInvoice.isPending ? "Voiding…" : "Void"}
+          </Button>
+        </div>
+        {/* Surface WHY collection is stuck: attempts made and the last
+            decline reason. Only shown once a charge has been attempted. */}
+        {attempts > 0 && (
+          <span className="text-muted-foreground text-xs">
+            {attempts} attempt{attempts === 1 ? "" : "s"}
+            {lastError ? ` · ${lastError}` : ""}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   if (status === "open") {
+    // A manual open invoice: void only, never auto-charge.
     return (
       <Button
         variant="ghost"
