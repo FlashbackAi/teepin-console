@@ -52,9 +52,19 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       // stale error replayed after sign-out triggers a second redirect.
       if (!tokens.access) return;
 
-      tokens.clear();
-      queryClient.clear();
-      router.replace("/login");
+      // Defer to a microtask: the cache can emit synchronously WHILE a
+      // component is rendering (a query that errors during its first
+      // render), and clearing state + navigating inline would be a
+      // setState/navigation during render — which React rejects with
+      // "Cannot update a component while rendering a different one".
+      // queueMicrotask runs it immediately after the current render
+      // settles, off React's synchronous path.
+      queueMicrotask(() => {
+        if (!tokens.access) return; // re-check: a concurrent sign-in may have set one
+        tokens.clear();
+        queryClient.clear();
+        router.replace("/login");
+      });
     });
     return unsubscribe;
   }, [checked, queryClient, router]);

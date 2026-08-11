@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
@@ -19,16 +19,32 @@ import { admin } from "@/lib/api/admin";
 import { errorMessage } from "@/lib/api/hooks";
 import { formatAccountNumber, formatCost, timeAgo } from "@/lib/utils";
 import { ManualInvoiceDialog } from "./manual-invoice-dialog";
-import { InvoiceStatusPill } from "./invoice-status";
-import type { Project } from "@/lib/api/types";
+import { UsageInvoiceDialog } from "./usage-invoice-dialog";
+import { GrantCreditDialog } from "./grant-credit-dialog";
+import { InvoiceStatusPill } from "@/components/ui/invoice-status";
 
+/**
+ * An invoice belongs to the ACCOUNT, the same way one AWS bill covers
+ * every service under an account rather than one bill per service. This
+ * page therefore has ONE invoice list and one "Issue invoice" action —
+ * not one per project. The per-project breakdown a customer still needs
+ * (which project incurred what) lives on individual line items instead;
+ * see the project column in the invoice table below.
+ */
 export default function ControlCenterAccountPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [invoicing, setInvoicing] = useState<Project | null>(null);
+  const [invoicing, setInvoicing] = useState(false);
+  const [usageInvoicing, setUsageInvoicing] = useState(false);
+  const [granting, setGranting] = useState(false);
+
+  const credits = useQuery({
+    queryKey: ["admin", "credits", id],
+    queryFn: () => admin.getAccountCredits(id),
+  });
 
   const accounts = useQuery({
     queryKey: ["admin", "accounts"],
@@ -40,17 +56,13 @@ export default function ControlCenterAccountPage({
     queryFn: () => admin.listAccountProjects(id),
   });
 
-  const account = accounts.data?.accounts.find((a) => a.id === id);
-  const projectList = projects.data?.projects ?? [];
-
-  // One invoice query per project. Fine at this scale — an operator is
-  // looking at a handful of projects, not paginating thousands.
-  const invoiceQueries = useQueries({
-    queries: projectList.map((project) => ({
-      queryKey: ["admin", "invoices", project.id],
-      queryFn: () => admin.listProjectInvoices(project.id),
-    })),
+  const invoices = useQuery({
+    queryKey: ["admin", "invoices", id],
+    queryFn: () => admin.listAccountInvoices(id),
   });
+
+  const account = accounts.data?.accounts.find((a) => a.id === id);
+  const rows = invoices.data?.invoices ?? [];
 
   return (
     <>
@@ -60,6 +72,34 @@ export default function ControlCenterAccountPage({
           "Accounts",
           account?.display_name ?? "…",
         ]}
+        action={
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setGranting(true)}
+              disabled={!account}
+            >
+              Grant credit
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setUsageInvoicing(true)}
+              disabled={!account}
+            >
+              Generate usage invoice
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setInvoicing(true)}
+              disabled={!account}
+            >
+              Issue invoice
+            </Button>
+          </div>
+        }
       />
 
       <div className="flex flex-col gap-6 p-6">
@@ -83,104 +123,207 @@ export default function ControlCenterAccountPage({
               <Detail label="Billing email">
                 {account.billing_email ?? "—"}
               </Detail>
+              <Detail label="Credit balance">
+                <span className="tabular">
+                  {credits.data ? formatCost(credits.data.balance) : "—"}
+                </span>
+              </Detail>
             </div>
           </Card>
         )}
 
-        {projects.isLoading ? (
+        {credits.data && credits.data.transactions.length > 0 && (
           <Card>
+            <CardHeader>
+              <CardTitle>Credit ledger</CardTitle>
+            </CardHeader>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Kind</TH>
+                  <TH>Reason</TH>
+                  <TH>Date</TH>
+                  <TH className="text-right">Amount</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {credits.data.transactions.map((t) => (
+                  <TR key={t.id}>
+                    <TD className="capitalize">{t.kind}</TD>
+                    <TD className="text-muted-foreground">{t.reason}</TD>
+                    <TD className="text-muted-foreground">
+                      {t.created_at.slice(0, 10)}
+                    </TD>
+                    <TD className="tabular text-right">
+                      {formatCost(t.amount)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Invoices</CardTitle>
+          </CardHeader>
+
+          {invoices.isLoading ? (
             <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-              Loading projects…
+              Loading invoices…
             </div>
-          </Card>
-        ) : projectList.length === 0 ? (
-          <Card>
+          ) : invoices.isError ? (
             <EmptyState
-              title="No projects"
-              description="This account has no projects to invoice against."
+              title="Could not load invoices"
+              description={errorMessage(invoices.error)}
             />
-          </Card>
-        ) : (
-          projectList.map((project, index) => {
-            const invoices = invoiceQueries[index];
-            const rows = invoices?.data?.invoices ?? [];
+          ) : rows.length === 0 ? (
+            <EmptyState
+              title="No invoices yet"
+              description="Issue one to bill this account a negotiated price, independent of metered usage."
+              action={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setInvoicing(true)}
+                >
+                  Issue invoice
+                </Button>
+              }
+            />
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Invoice</TH>
+                  <TH>Period</TH>
+                  <TH>Source</TH>
+                  <TH>Projects</TH>
+                  <TH>Status</TH>
+                  <TH className="text-right">Total</TH>
+                  <TH className="text-right">Actions</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {rows.map((invoice) => {
+                  // Distinct project names across this invoice's line
+                  // items — the per-project breakdown, summarised for
+                  // the list view. Full detail belongs on an invoice
+                  // detail page (not yet built).
+                  const projectNames = Array.from(
+                    new Set(
+                      (invoice.line_items ?? [])
+                        .map((item) => item.project_name)
+                        .filter((name): name is string => Boolean(name)),
+                    ),
+                  );
 
-            return (
-              <Card key={project.id}>
-                <CardHeader className="flex items-center justify-between">
-                  <CardTitle>{project.name}</CardTitle>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setInvoicing(project)}
-                  >
-                    Issue invoice
-                  </Button>
-                </CardHeader>
+                  return (
+                    <TR key={invoice.id}>
+                      <TD>
+                        <span className="identifier">
+                          {invoice.invoice_number}
+                        </span>
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {invoice.period_start?.slice(0, 10)} →{" "}
+                        {invoice.period_end?.slice(0, 10)}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {invoice.source === "manual" ? "Manual" : "Usage"}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {projectNames.length === 0
+                          ? "—"
+                          : projectNames.length === 1
+                            ? projectNames[0]
+                            : `${projectNames.length} projects`}
+                      </TD>
+                      <TD>
+                        <InvoiceStatusPill status={invoice.status} />
+                      </TD>
+                      <TD className="tabular text-right">
+                        {formatCost(invoice.total)}
+                      </TD>
+                      <TD className="text-right">
+                        <InvoiceActions
+                          invoiceId={invoice.id}
+                          status={invoice.status}
+                          accountId={id}
+                        />
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </Table>
+          )}
+        </Card>
 
-                {invoices?.isLoading ? (
-                  <div className="text-muted-foreground px-4 py-6 text-center text-sm">
-                    Loading invoices…
-                  </div>
-                ) : rows.length === 0 ? (
-                  <div className="text-muted-foreground px-4 py-6 text-sm">
-                    No invoices for this project yet.
-                  </div>
-                ) : (
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>Invoice</TH>
-                        <TH>Period</TH>
-                        <TH>Source</TH>
-                        <TH>Status</TH>
-                        <TH className="text-right">Total</TH>
-                        <TH className="text-right">Actions</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {rows.map((invoice) => (
-                        <TR key={invoice.id}>
-                          <TD>
-                            <span className="identifier">
-                              {invoice.invoice_number}
-                            </span>
-                          </TD>
-                          <TD className="text-muted-foreground">
-                            {invoice.period_start?.slice(0, 10)} →{" "}
-                            {invoice.period_end?.slice(0, 10)}
-                          </TD>
-                          <TD className="text-muted-foreground">
-                            {invoice.source === "manual" ? "Manual" : "Usage"}
-                          </TD>
-                          <TD>
-                            <InvoiceStatusPill status={invoice.status} />
-                          </TD>
-                          <TD className="tabular text-right">
-                            {formatCost(invoice.total)}
-                          </TD>
-                          <TD className="text-right">
-                            <InvoiceActions
-                              invoiceId={invoice.id}
-                              status={invoice.status}
-                              projectId={project.id}
-                            />
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                )}
-              </Card>
-            );
-          })
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Projects</CardTitle>
+          </CardHeader>
+          {projects.isLoading ? (
+            <div className="text-muted-foreground px-4 py-6 text-center text-sm">
+              Loading…
+            </div>
+          ) : !projects.data?.projects.length ? (
+            <div className="text-muted-foreground px-4 py-6 text-sm">
+              No projects.
+            </div>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Name</TH>
+                  <TH>Slug</TH>
+                  <TH>Created</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {projects.data.projects.map((project) => (
+                  <TR key={project.id}>
+                    <TD className="font-medium">{project.name}</TD>
+                    <TD>
+                      <span className="identifier text-muted-foreground">
+                        {project.slug}
+                      </span>
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {timeAgo(project.created_at)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
       </div>
 
-      {invoicing && (
+      {invoicing && account && (
         <ManualInvoiceDialog
-          project={invoicing}
-          onClose={() => setInvoicing(null)}
+          accountId={account.id}
+          accountName={account.display_name}
+          projects={projects.data?.projects ?? []}
+          onClose={() => setInvoicing(false)}
+        />
+      )}
+
+      {usageInvoicing && account && (
+        <UsageInvoiceDialog
+          accountId={account.id}
+          accountName={account.display_name}
+          onClose={() => setUsageInvoicing(false)}
+        />
+      )}
+
+      {granting && account && (
+        <GrantCreditDialog
+          accountId={account.id}
+          accountName={account.display_name}
+          onClose={() => setGranting(false)}
         />
       )}
     </>
@@ -197,17 +340,17 @@ export default function ControlCenterAccountPage({
 function InvoiceActions({
   invoiceId,
   status,
-  projectId,
+  accountId,
 }: {
   invoiceId: string;
   status: string;
-  projectId: string;
+  accountId: string;
 }) {
   const queryClient = useQueryClient();
 
   const refresh = () =>
     queryClient.invalidateQueries({
-      queryKey: ["admin", "invoices", projectId],
+      queryKey: ["admin", "invoices", accountId],
     });
 
   const issue = useMutation({

@@ -32,6 +32,10 @@ export const keys = {
   instance: (id: string) => ["instance", id] as const,
   instanceTypes: ["instance-types"] as const,
   billing: ["billing"] as const,
+  invoices: ["invoices"] as const,
+  invoice: (id: string) => ["invoice", id] as const,
+  paymentMethods: ["payment-methods"] as const,
+  creditBalance: ["credit-balance"] as const,
 };
 
 // ---------------------------------------------------------------------
@@ -236,6 +240,71 @@ export function useBillingSummary() {
     // produces load without producing new numbers.
     staleTime: 60_000,
   });
+}
+
+export function useInvoices() {
+  return useQuery({
+    queryKey: keys.invoices,
+    queryFn: api.listInvoices,
+    staleTime: 60_000,
+  });
+}
+
+export function useInvoice(id: string) {
+  return useQuery({
+    queryKey: keys.invoice(id),
+    queryFn: () => api.getInvoice(id),
+    enabled: Boolean(id),
+  });
+}
+
+// ---------------------------------------------------------------------
+// Payment methods & credits
+// ---------------------------------------------------------------------
+
+export function usePaymentMethods() {
+  return useQuery({
+    queryKey: keys.paymentMethods,
+    queryFn: api.listPaymentMethods,
+  });
+}
+
+export function useCreditBalance() {
+  return useQuery({
+    queryKey: keys.creditBalance,
+    queryFn: api.creditBalance,
+    staleTime: 60_000,
+  });
+}
+
+export function useRemovePaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removePaymentMethod(id),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: keys.paymentMethods }),
+  });
+}
+
+export function useSetDefaultPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.setDefaultPaymentMethod(id),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: keys.paymentMethods }),
+  });
+}
+
+/**
+ * Whether the account may launch resources: it has at least one verified
+ * card. Derived from the payment-methods query so the compute create
+ * dialog can pre-check without a separate endpoint. Returns undefined
+ * while loading, so callers can tell "no card" from "not yet known".
+ */
+export function useCanProvision(): boolean | undefined {
+  const methods = usePaymentMethods();
+  if (methods.isLoading || !methods.data) return undefined;
+  return methods.data.payment_methods.some((m) => m.status === "verified");
 }
 
 // ---------------------------------------------------------------------

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -8,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import {
   errorMessage,
+  useCanProvision,
   useCreateInstance,
   useInstanceTypes,
 } from "@/lib/api/hooks";
@@ -27,6 +29,10 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
   // until then), so no gate is needed here.
   const types = useInstanceTypes();
   const create = useCreateInstance();
+  // undefined while loading, false when the account has no verified card.
+  // The backend enforces this (402); the pre-check just turns a
+  // post-submit error into an up-front, actionable message.
+  const canProvision = useCanProvision();
 
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
@@ -90,7 +96,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
             size="sm"
             form="create-instance"
             type="submit"
-            disabled={create.isPending || noCapacity}
+            disabled={create.isPending || noCapacity || canProvision === false}
           >
             {create.isPending ? "Creating…" : "Create instance"}
           </Button>
@@ -102,6 +108,26 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
         onSubmit={submit}
         className="flex flex-col gap-4"
       >
+        {canProvision === false && (
+          <div className="hairline rounded-md border-border bg-muted/50 px-3 py-2.5 text-sm">
+            <p className="text-foreground font-medium">
+              Add a payment method to launch instances
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              A validated card is required before any resource can be
+              created.{" "}
+              <Link
+                href="/settings/payment"
+                className="text-foreground underline"
+                onClick={onClose}
+              >
+                Add a card
+              </Link>
+              .
+            </p>
+          </div>
+        )}
+
         <Field
           label="Name"
           hint="Lowercase letters, numbers and hyphens."

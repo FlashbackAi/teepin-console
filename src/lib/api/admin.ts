@@ -1,5 +1,5 @@
 import { ApiError } from "./client";
-import type { Account, Invoice, Project } from "./types";
+import type { Account, CreditTransaction, Invoice, Project } from "./types";
 
 /**
  * Admin API client — the control centre.
@@ -73,6 +73,10 @@ export interface AdminAccountSummary extends Account {
 
 export interface ManualLineItem {
   description: string;
+  /** Optional: attributes this line to one project, for the per-project
+   *  breakdown. Omit for an account-wide charge (platform fee, setup
+   *  cost, credit) not tied to any single project's usage. */
+  project_id?: string;
   quantity?: number;
   unit?: string;
   unit_price?: number;
@@ -80,8 +84,14 @@ export interface ManualLineItem {
   amount: number;
 }
 
+/**
+ * An invoice belongs to an ACCOUNT, not a project — the same way one AWS
+ * bill covers every service under an account rather than one bill per
+ * service. Per-project attribution lives on individual line items
+ * instead, via ManualLineItem.project_id.
+ */
 export interface CreateManualInvoiceRequest {
-  project_id: string;
+  account_id: string;
   /** YYYY-MM-DD. */
   period_start: string;
   period_end: string;
@@ -110,11 +120,47 @@ export const admin = {
       `/v1/admin/projects/${projectId}/invoices`,
     ),
 
+  /** Every invoice an account owns — project-anchored and account-level
+   *  (manual) together. This is the control centre's primary list. */
+  listAccountInvoices: (accountId: string) =>
+    adminRequest<{ invoices: Invoice[]; count: number }>(
+      `/v1/admin/accounts/${accountId}/invoices`,
+    ),
+
   getInvoice: (invoiceId: string) =>
     adminRequest<Invoice>(`/v1/admin/invoices/${invoiceId}`),
 
   createManualInvoice: (body: CreateManualInvoiceRequest) =>
     adminRequest<Invoice>("/v1/admin/invoices", { method: "POST", body }),
+
+  /** Builds a DRAFT usage invoice for the account's metered activity over
+   *  the period, one line item per (project, resource). Like a manual
+   *  invoice it is a draft to review before issuing. */
+  generateUsageInvoice: (
+    accountId: string,
+    body: { period_start: string; period_end: string },
+  ) =>
+    adminRequest<Invoice>(
+      `/v1/admin/accounts/${accountId}/usage-invoices`,
+      { method: "POST", body },
+    ),
+
+  /** Grants operator credit to an account. amount is capped server-side;
+   *  reason is required (an unexplained credit is a fraud signal). */
+  grantCredit: (
+    accountId: string,
+    body: { amount: number; reason: string; expires_at?: string },
+  ) =>
+    adminRequest<{ balance: number }>(
+      `/v1/admin/accounts/${accountId}/credits`,
+      { method: "POST", body },
+    ),
+
+  /** Balance + full ledger for the control-centre credit view. */
+  getAccountCredits: (accountId: string) =>
+    adminRequest<{ balance: number; transactions: CreditTransaction[] }>(
+      `/v1/admin/accounts/${accountId}/credits`,
+    ),
 
   /** Draft → open. Makes the invoice payable and visible as owed. */
   issueInvoice: (invoiceId: string) =>

@@ -71,3 +71,24 @@ export function formatAccountNumber(raw: string): string {
   if (raw.length !== 10) return raw;
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
 }
+
+/**
+ * Trigger a browser download by navigating to a URL via a synthetic
+ * link click.
+ *
+ * Used for presigned S3 URLs, which the browser must NAVIGATE to (a
+ * cross-origin fetch into S3 is blocked by CORS). A clicked <a> is a
+ * navigation, not a fetch, so it is not subject to CORS. The link is not
+ * given a `download` attribute: that attribute is ignored cross-origin
+ * anyway, and the presigned URL already asks S3 for a
+ * Content-Disposition: attachment response, which is what makes the
+ * browser save the file rather than open it in the tab.
+ */
+export function triggerDownload(url: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}

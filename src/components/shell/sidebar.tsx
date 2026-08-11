@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Boxes,
+  ChevronDown,
   CreditCard,
   Cpu,
   Database,
@@ -41,7 +43,9 @@ import { Wordmark } from "@/components/ui/wordmark";
 type NavItem = {
   label: string;
   href?: string;
-  icon: React.ComponentType<{ className?: string }>;
+  /** Optional: top-level items carry an icon; nested group children are
+      rendered without one (they read as a subtree under the parent). */
+  icon?: React.ComponentType<{ className?: string }>;
   /** Unbuilt services are shown, greyed, with a `soon` tag: the
       platform's direction should be legible without a blog post. */
   soon?: boolean;
@@ -87,8 +91,17 @@ export function Sidebar({
     },
   ];
 
+  // Billing is one expandable group — "Billing & Cost Management" — the
+  // way AWS groups Bills / Payments / Credits under a single heading,
+  // rather than scattering them as sibling top-level links. Each child is
+  // its own screen.
+  const billingChildren: NavItem[] = [
+    { label: "Bills", href: "/billing", meta: monthToDate },
+    { label: "Payments", href: "/settings/payment" },
+    { label: "Credits", href: "/billing/credits" },
+  ];
+
   const accountItems: NavItem[] = [
-    { label: "Billing", href: "/billing", icon: CreditCard, meta: monthToDate },
     { label: "Account", href: "/settings/account", icon: Settings },
   ];
 
@@ -133,6 +146,13 @@ export function Sidebar({
 
         <div className="hairline-b my-3 border-border" />
 
+        <NavGroup
+          label="Billing & Cost Management"
+          icon={CreditCard}
+          items={billingChildren}
+          pathname={pathname}
+        />
+
         {accountItems.map((item) => (
           <NavLink
             key={item.label}
@@ -176,7 +196,7 @@ function NavLink({
 }: NavItem & { active?: boolean }) {
   const content = (
     <>
-      <Icon className="h-3.5 w-3.5 shrink-0" />
+      {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
       <span className="flex-1 truncate">{label}</span>
       {soon && (
         <span className="text-muted-foreground/70 text-[10px]">soon</span>
@@ -204,6 +224,108 @@ function NavLink({
       {content}
     </Link>
   );
+}
+
+/**
+ * A collapsible nav group: a parent heading that expands to child links,
+ * each its own screen. Used for "Billing & Cost Management".
+ *
+ * Starts expanded when one of its children is the active route, so a
+ * customer deep-linked to /settings/payment lands with the group open and
+ * the item highlighted. After that it is a normal toggle.
+ */
+function NavGroup({
+  label,
+  icon: Icon,
+  items,
+  pathname,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  items: NavItem[];
+  pathname: string;
+}) {
+  const childActive = (href?: string) =>
+    href ? isActiveRoute(pathname, href) : false;
+  const anyActive = items.some((c) => childActive(c.href));
+
+  // `userOpen` is the explicit toggle; the group is shown open whenever
+  // the user opened it OR a child is the active route. Deriving `open`
+  // rather than syncing it in an effect avoids a setState-in-effect
+  // cascade — the active child forces the group open without extra state.
+  const [userOpen, setUserOpen] = useState(false);
+  const open = userOpen || anyActive;
+
+  return (
+    <div>
+      <button
+        onClick={() => setUserOpen((v) => !v)}
+        className={cn(
+          "flex h-7 w-full items-center gap-2 rounded px-2 text-sm",
+          anyActive
+            ? "text-foreground font-medium"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+        )}
+        aria-expanded={open}
+      >
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 truncate text-left">{label}</span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            open ? "" : "-rotate-90",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="mt-0.5 flex flex-col gap-0.5">
+          {items.map((child) => (
+            <Link
+              key={child.label}
+              href={child.href ?? "#"}
+              className={cn(
+                // Indented under the parent, with a rail to read as a
+                // subtree rather than a sibling list.
+                "hairline-l ml-3 flex h-7 items-center gap-2 border-border pl-3 pr-2 text-sm",
+                childActive(child.href)
+                  ? "text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+              )}
+            >
+              <span className="flex-1 truncate">{child.label}</span>
+              {child.meta && (
+                <span className="tabular text-muted-foreground text-xs">
+                  {child.meta}
+                </span>
+              )}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Whether `href` is the active route. Exact match, EXCEPT a child under
+ * the same path prefix must not light up its parent: /billing and
+ * /billing/credits are distinct screens, so startsWith would wrongly mark
+ * /billing active when on /billing/credits. A trailing-segment check
+ * keeps them exclusive while still treating /billing/invoices/123 as
+ * under /billing.
+ */
+function isActiveRoute(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  // /billing must stay active on /billing/invoices/... but NOT on
+  // /billing/credits (which is its own nav item). Only extend the match
+  // when the next segment is not itself a sibling nav route.
+  if (href === "/billing") {
+    return (
+      pathname.startsWith("/billing/") && !pathname.startsWith("/billing/credits")
+    );
+  }
+  return pathname.startsWith(href + "/");
 }
 
 function SignOut() {

@@ -6,7 +6,7 @@ import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/input";
+import { Field, Input, Select } from "@/components/ui/input";
 import { admin, type ManualLineItem } from "@/lib/api/admin";
 import { errorMessage } from "@/lib/api/hooks";
 import { formatCost } from "@/lib/utils";
@@ -20,6 +20,13 @@ import type { Project } from "@/lib/api/types";
  * the switch to usage-based billing later is a change of policy, not a
  * change of system.
  *
+ * ACCOUNT-scoped, not project-scoped — one invoice can cover an
+ * account's activity across every project it has, the same way one AWS
+ * bill covers every service under one account. Each line item may
+ * optionally be attributed to one of the account's projects for the
+ * per-project breakdown; a line with no project is an account-wide
+ * charge (platform fee, setup cost, credit).
+ *
  * Created as a DRAFT. Issuing is a separate, deliberate step — an
  * operator building an invoice for someone else's account should be able
  * to check the numbers before it becomes something the customer owes.
@@ -27,6 +34,7 @@ import type { Project } from "@/lib/api/types";
 
 type DraftLine = {
   description: string;
+  projectId: string;
   quantity: string;
   unit: string;
   unitPrice: string;
@@ -35,6 +43,7 @@ type DraftLine = {
 
 const emptyLine: DraftLine = {
   description: "",
+  projectId: "",
   quantity: "",
   unit: "",
   unitPrice: "",
@@ -42,20 +51,30 @@ const emptyLine: DraftLine = {
 };
 
 export function ManualInvoiceDialog({
-  project,
+  accountId,
+  accountName,
+  projects,
   onClose,
 }: {
-  project: Project;
+  accountId: string;
+  accountName: string;
+  projects: Project[];
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
 
   const today = new Date();
+  const todayIso = iso(today);
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
+  // A billing period covers activity that has already happened, so it
+  // cannot extend past today — the period defaults to "start of month →
+  // today", and both inputs are capped at today (max=todayIso). The
+  // backend enforces the same rule; the cap just stops the operator
+  // picking a future date in the first place. The due date is exempt —
+  // "due in 30 days" is a future date by design.
   const [periodStart, setPeriodStart] = useState(iso(firstOfMonth));
-  const [periodEnd, setPeriodEnd] = useState(iso(lastOfMonth));
+  const [periodEnd, setPeriodEnd] = useState(todayIso);
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ ...emptyLine }]);
@@ -65,7 +84,7 @@ export function ManualInvoiceDialog({
       admin.createManualInvoice(body),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["admin", "invoices", project.id],
+        queryKey: ["admin", "invoices", accountId],
       });
       onClose();
     },
@@ -105,6 +124,7 @@ export function ManualInvoiceDialog({
       .filter((line) => line.description.trim() !== "")
       .map((line) => ({
         description: line.description.trim(),
+        project_id: line.projectId || undefined,
         quantity: line.quantity === "" ? undefined : Number(line.quantity),
         unit: line.unit.trim() || undefined,
         unit_price:
@@ -113,7 +133,7 @@ export function ManualInvoiceDialog({
       }));
 
     create.mutate({
-      project_id: project.id,
+      account_id: accountId,
       period_start: periodStart,
       period_end: periodEnd,
       due_date: dueDate || undefined,
@@ -122,17 +142,26 @@ export function ManualInvoiceDialog({
     });
   };
 
+  // Period must not run backwards or past today. Mirrors the backend
+  // guard so an operator sees the button stay disabled rather than
+  // getting a round-trip error. (max= on the inputs blocks the picker,
+  // but a typed value can still land out of range.)
+  const periodValid =
+    periodStart !== "" &&
+    periodEnd !== "" &&
+    periodStart <= periodEnd &&
+    periodEnd <= todayIso;
+
   const valid =
     lines.some((line) => line.description.trim() !== "" && line.amount !== "") &&
-    periodStart !== "" &&
-    periodEnd !== "";
+    periodValid;
 
   return (
     <Dialog
       title="Issue invoice"
-      description={`${project.name} — created as a draft you can review before issuing.`}
+      description={`${accountName} — created as a draft you can review before issuing.`}
       onClose={onClose}
-      className="max-w-3xl"
+      className="max-w-4xl"
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -157,6 +186,7 @@ export function ManualInvoiceDialog({
               id="period-start"
               type="date"
               required
+              max={todayIso}
               value={periodStart}
               onChange={(e) => setPeriodStart(e.target.value)}
             />
@@ -166,6 +196,7 @@ export function ManualInvoiceDialog({
               id="period-end"
               type="date"
               required
+              max={todayIso}
               value={periodEnd}
               onChange={(e) => setPeriodEnd(e.target.value)}
             />
@@ -187,8 +218,9 @@ export function ManualInvoiceDialog({
 
           {/* Column headers, so an operator entering a rate knows which
               box means what without clicking into it. */}
-          <div className="text-muted-foreground grid grid-cols-[1fr_80px_80px_90px_90px_28px] gap-2 text-[11px]">
+          <div className="text-muted-foreground grid grid-cols-[1fr_120px_70px_70px_80px_80px_28px] gap-2 text-[11px]">
             <span>Description</span>
+            <span>Project</span>
             <span>Quantity</span>
             <span>Unit</span>
             <span>Unit price</span>
@@ -199,7 +231,7 @@ export function ManualInvoiceDialog({
           {lines.map((line, index) => (
             <div
               key={index}
-              className="grid grid-cols-[1fr_80px_80px_90px_90px_28px] gap-2"
+              className="grid grid-cols-[1fr_120px_70px_70px_80px_80px_28px] gap-2"
             >
               <Input
                 aria-label={`Line ${index + 1} description`}
@@ -209,6 +241,20 @@ export function ManualInvoiceDialog({
                   updateLine(index, { description: e.target.value })
                 }
               />
+              <Select
+                aria-label={`Line ${index + 1} project`}
+                value={line.projectId}
+                onChange={(e) =>
+                  updateLine(index, { projectId: e.target.value })
+                }
+              >
+                <option value="">Account-wide</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </Select>
               <Input
                 aria-label={`Line ${index + 1} quantity`}
                 type="number"

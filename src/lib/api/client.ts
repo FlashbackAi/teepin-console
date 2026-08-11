@@ -9,7 +9,9 @@ import type {
   InstanceList,
   InstanceLogs,
   InstanceTypeList,
+  Invoice,
   LoginResponse,
+  PaymentMethod,
   Project,
   RegisterResponse,
   UpdateAccountRequest,
@@ -279,4 +281,61 @@ export const api = {
   // Billing
   // -------------------------------------------------------------------
   billingSummary: () => request<BillingSummary>("/v1/billing/summary"),
+
+  // Account-scoped since the account-level invoicing redesign: returns
+  // every invoice the caller's account owns, usage and manual together.
+  // Uses the JWT session, not the project API key — an invoice is not a
+  // compute resource, and requiring a project key would make an
+  // account-level invoice (no single project) awkward to reach.
+  listInvoices: () =>
+    request<{ invoices: Invoice[]; count: number }>("/v1/billing/invoices"),
+
+  getInvoice: (id: string) => request<Invoice>(`/v1/billing/invoices/${id}`),
+
+  // Returns a short-lived presigned S3 URL to download the invoice PDF.
+  //
+  // Two steps by design: this call (same-origin, authed) asks the API
+  // for the URL, and the CALLER then navigates the browser to it. We do
+  // NOT fetch() the S3 URL ourselves — a cross-origin fetch into S3 is
+  // blocked by CORS (S3 sends no Access-Control-Allow-Origin). Navigation
+  // is not subject to CORS, and the presigned URL already asks S3 for a
+  // Content-Disposition: attachment response, so the browser saves it as
+  // a file. See downloadInvoicePdf() in hooks/util callers.
+  invoicePdfUrl: (id: string) =>
+    request<{ url: string }>(`/v1/billing/invoices/${id}/pdf`),
+
+  // Remaining account credit (spent before the card is charged). Shown on
+  // the billing overview when non-zero.
+  creditBalance: () =>
+    request<{ balance: number }>("/v1/billing/credits"),
+
+  // -------------------------------------------------------------------
+  // Payment methods — account-scoped, JWT (a card belongs to the account,
+  // not a project), so no useApiKey.
+  // -------------------------------------------------------------------
+  listPaymentMethods: () =>
+    request<{ payment_methods: PaymentMethod[]; count: number }>(
+      "/v1/accounts/current/payment-methods",
+    ),
+
+  // Starts adding a card: returns the SetupIntent client secret the
+  // browser hands to Stripe.js to confirm the card. The card only becomes
+  // usable once Stripe's webhook confirms it.
+  createSetupIntent: () =>
+    request<{ client_secret: string }>(
+      "/v1/accounts/current/payment-methods/setup-intent",
+      { method: "POST" },
+    ),
+
+  removePaymentMethod: (id: string) =>
+    request<{ removed: boolean }>(
+      `/v1/accounts/current/payment-methods/${id}`,
+      { method: "DELETE" },
+    ),
+
+  setDefaultPaymentMethod: (id: string) =>
+    request<{ updated: boolean }>(
+      `/v1/accounts/current/payment-methods/${id}/default`,
+      { method: "POST" },
+    ),
 };

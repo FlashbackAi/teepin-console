@@ -238,6 +238,12 @@ export type InvoiceStatus =
 export interface InvoiceLineItem {
   id?: string;
   description: string;
+  /** Attributes this line to a project, for the per-project breakdown.
+   *  Absent for account-wide charges (platform fee, credit) not tied to
+   *  any single project's usage. */
+  project_id?: string;
+  /** Read-only, joined at fetch time — never write this. */
+  project_name?: string;
   /** Context for the amount — "120.5 GPU-hours × $1.00". */
   quantity?: number;
   unit?: string;
@@ -248,8 +254,11 @@ export interface InvoiceLineItem {
 
 export interface Invoice {
   id: string;
-  project_id: string;
   account_id: string;
+  /** Set only for a project-anchored (usage-path) invoice. Account-level
+   *  and manual invoices are nil here — see InvoiceLineItem.project_id
+   *  for their per-project breakdown instead. */
+  project_id?: string;
   invoice_number: string;
   period_start: string;
   period_end: string;
@@ -272,6 +281,13 @@ export interface Invoice {
   line_items?: InvoiceLineItem[];
   created_at: string;
   updated_at: string;
+  /** True when a downloadable PDF document has been generated and stored
+   *  for this invoice. Derived server-side from the stored S3 key; the
+   *  key itself is never exposed. False for invoices issued before PDF
+   *  storage existed. */
+  pdf_available?: boolean;
+  /** When the stored document was rendered, if one exists. */
+  pdf_generated_at?: string;
 }
 
 export interface BillingSummary {
@@ -281,4 +297,41 @@ export interface BillingSummary {
   total_cost: number;
   currency: string;
   projects: BillingProject[];
+}
+
+/**
+ * A stored card.
+ *
+ * `status` gates everything: only a `verified` card counts toward the
+ * provisioning gate and can be a default. A `pending` card is one whose
+ * SetupIntent Stripe has not yet confirmed.
+ */
+export type PaymentMethodStatus = "pending" | "verified" | "failed" | "removed";
+
+export interface PaymentMethod {
+  id: string;
+  account_id: string;
+  type: string;
+  brand?: string;
+  last4?: string;
+  exp_month?: number;
+  exp_year?: number;
+  status: PaymentMethodStatus;
+  verified_at?: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One row of the append-only credit ledger. */
+export interface CreditTransaction {
+  id: string;
+  account_id: string;
+  /** Positive for a grant, negative for consumption/expiry/revocation. */
+  amount: number;
+  kind: "grant" | "consumption" | "expiry" | "revocation";
+  reason: string;
+  granted_by?: string;
+  expires_at?: string;
+  created_at: string;
 }
