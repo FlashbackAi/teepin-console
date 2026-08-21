@@ -105,6 +105,20 @@
   --color-destructive: hsl(var(--destructive));
   --color-info: hsl(var(--info));
   --color-ring: hsl(var(--ring));
+
+  /* Aliases for the shared brand components (TeepinReactor/TeepinMark),
+     which reference these exact names directly in SVG attributes — they
+     originate on the marketing site's own ink/steel/hud palette. Mapped
+     onto OUR tokens rather than pulling in that second palette, since
+     this app deliberately stays neutral-gray with no brand accent (see
+     the note atop this file); --hud reuses --info, our one existing blue
+     accent. Because each already flips with .dark, these do too, with no
+     separate dark override needed. */
+  --color-ink: hsl(var(--foreground));
+  --color-steel: hsl(var(--muted-foreground));
+  --color-hairline: hsl(var(--border));
+  --color-hud: hsl(var(--info));
+  --color-hud-deep: hsl(var(--info));
 }
 
 * {

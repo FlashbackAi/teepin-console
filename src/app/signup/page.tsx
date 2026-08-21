@@ -51,7 +51,7 @@ export default function SignupPage() {
     <div className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8">
-          <Wordmark className="h-9" />
+          <Wordmark height={36} />
           <p className="text-muted-foreground mt-3 text-sm">
             Create your account
           </p>

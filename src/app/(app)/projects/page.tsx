@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
+import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
   TBody,
@@ -46,9 +47,7 @@ export default function ProjectsPage() {
       <div className="p-6">
         <Card>
           {isLoading ? (
-            <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-              Loading…
-            </div>
+            <Loading className="px-4 py-16" />
           ) : projects.length === 0 ? (
             <EmptyState
               title="No projects"

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { tokens } from "./api/client";
-import { keys as queryKeys, useApiKeys, useCreateApiKey, useProjects } from "./api/hooks";
+import { activeProject as activeProjectHeader } from "./api/client";
+import { keys as queryKeys, useProjects } from "./api/hooks";
 import type { Project } from "./api/types";
 
 const ACTIVE_PROJECT_KEY = "teepin-active-project";
@@ -38,6 +38,10 @@ const projectStore = {
   set(id: string | null) {
     if (projectStore.current === id) return;
     projectStore.current = id;
+    // Mirrored into the API client so every project-scoped request (the
+    // X-Project-ID header — see client.ts) picks up the change immediately,
+    // with no separate "provision a credential for this project" step.
+    activeProjectHeader.set(id);
     projectStore.listeners.forEach((listener) => listener());
   },
 };
@@ -60,15 +64,17 @@ export function clearActiveProject() {
 /**
  * The project the console is currently operating in.
  *
- * Everything under GPU compute is project-scoped, and billing is per
+ * Everything under GPU/CPU compute is project-scoped, and billing is per
  * project, so the console must always know which one it is spending in.
  *
- * It also holds that project's API key. Compute endpoints authenticate
- * with a project API key (`tpk_...`) rather than the user's JWT — the
- * JWT identifies a person, the key identifies a project. The console
- * provisions one silently on first use so the customer never has to
- * think about it; keys they create explicitly in Settings are for their
- * own CLI and CI use.
+ * Compute requests authenticate with the signed-in user's own JWT, plus an
+ * X-Project-ID header naming this project — verified server-side against
+ * the caller's account (pkg/auth/middleware.go). This mirrors how the AWS
+ * console reaches its own APIs: your sign-in credential works directly,
+ * scoped to whatever you're viewing. There is no separate project API key
+ * for the console to provision or manage. A real API key (`tpk_...`),
+ * created explicitly in Settings → API keys, is for the customer's own
+ * CLI/CI use — a wholly different, opt-in credential.
  */
 export function useActiveProject() {
   const queryClient = useQueryClient();
@@ -100,15 +106,9 @@ export function useActiveProject() {
     projectStore.set(id);
     localStorage.setItem(ACTIVE_PROJECT_KEY, id);
 
-    // The stored API key belongs to the PREVIOUS project. Left in place
-    // it would keep reading that project's instances under the new
-    // project's name — a cross-project data leak in the UI, even though
-    // the API scoped every response correctly.
-    tokens.clearApiKey();
-
-    // Drop cached compute data for the same reason: without this the new
-    // project renders the old project's instances until the refetch
-    // lands, which is brief but genuinely misleading.
+    // Drop cached compute data — without this the new project renders the
+    // old project's instances until the refetch lands, which is brief but
+    // genuinely misleading.
     queryClient.removeQueries({ queryKey: queryKeys.instances });
     queryClient.removeQueries({ queryKey: queryKeys.instanceTypes });
   };
@@ -123,49 +123,4 @@ export function useActiveProject() {
     isLoading: projects.isLoading,
     select,
   };
-}
-
-/**
- * Ensures a usable API key exists for the active project.
- *
- * Compute screens cannot call the API without one. Rather than making
- * the customer create a key before they can see their instances — which
- * is a confusing first-run experience — the console provisions one for
- * its own use on demand.
- */
-export function useEnsureApiKey(projectId: string | undefined) {
-  const keys = useApiKeys(projectId);
-  const createKey = useCreateApiKey(projectId ?? "");
-  const [readyFor, setReadyFor] = useState<string | null>(
-    tokens.apiKey && projectId ? projectId : null,
-  );
-
-  // Tracked per project, not as a bare boolean: after switching projects
-  // the previous project's key has been cleared, and a `ready` that
-  // stayed true would let compute queries fire with no credentials.
-  const ready = Boolean(projectId) && readyFor === projectId;
-
-  useEffect(() => {
-    if (!projectId || ready || createKey.isPending) return;
-
-    if (tokens.apiKey) {
-      setReadyFor(projectId);
-      return;
-    }
-    // Wait for the list before creating, or a refresh would mint a new
-    // console key on every page load.
-    if (keys.isLoading) return;
-
-    createKey.mutate(
-      { name: "console" },
-      {
-        onSuccess: (result) => {
-          tokens.setApiKey(result.key);
-          setReadyFor(projectId);
-        },
-      },
-    );
-  }, [projectId, ready, keys.isLoading, createKey]);
-
-  return { ready, error: createKey.error };
 }

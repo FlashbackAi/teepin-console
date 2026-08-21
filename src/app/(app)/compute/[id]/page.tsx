@@ -5,11 +5,12 @@ import { use, useState } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { useAnnounceComputeSection } from "@/components/shell/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/ui/status";
-import { useActiveProject, useEnsureApiKey } from "@/lib/active-project";
+import { useActiveProject } from "@/lib/active-project";
 import {
   errorMessage,
   useDeleteInstance,
@@ -26,7 +27,7 @@ export default function InstanceDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const { project } = useActiveProject();
-  const { ready } = useEnsureApiKey(project?.id);
+  const ready = Boolean(project);
 
   const instance = useInstance(id, ready);
   const remove = useDeleteInstance();
@@ -34,10 +35,30 @@ export default function InstanceDetailPage({
 
   const data = instance.data;
 
+  // Which section this instance belongs to — a cpu.home instance reached
+  // via CPU compute must not claim to be under GPU compute, in either the
+  // breadcrumb or the sidebar highlight. Same gpu.* convention used by the
+  // list pages and the sidebar's running-count split. null while the
+  // instance is still loading, since the type isn't known yet.
+  const section: "gpu" | "cpu" | null = !data
+    ? null
+    : (data.instance_type ?? "").startsWith("gpu")
+      ? "gpu"
+      : "cpu";
+  // Tell the sidebar which link to highlight — GPU and CPU instance detail
+  // share one URL shape, so the sidebar can't infer this from the path
+  // alone. Cleared automatically on unmount (see the hook).
+  useAnnounceComputeSection(section);
+
   return (
     <>
       <PageHeader
-        breadcrumb={["Projects", project?.name ?? "…", "GPU compute", id]}
+        breadcrumb={[
+          "Projects",
+          project?.name ?? "…",
+          section === "gpu" ? "GPU compute" : section === "cpu" ? "CPU compute" : "Compute",
+          id,
+        ]}
         action={
           <Button
             variant="destructive"

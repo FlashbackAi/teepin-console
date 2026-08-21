@@ -195,6 +195,36 @@ export function useInstanceTypes(enabled = true) {
   });
 }
 
+/** Home CPU capacity: which tiers fit right now. Returns undefined data on a
+ *  404 (home compute disabled), so callers just see "no home capacity" rather
+ *  than an error. Not retried — a 404 is a stable answer. */
+export function useHomeCapacity(enabled = true) {
+  return useQuery({
+    queryKey: ["home-capacity"],
+    queryFn: api.homeCapacity,
+    enabled,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+/** Ports the given image declares via EXPOSE, for defaulting the
+ *  create-instance form's Port field. `image` empty disables the query —
+ *  callers should also debounce changes themselves so this does not fire
+ *  on every keystroke. */
+export function useImagePorts(image: string) {
+  return useQuery({
+    queryKey: ["image-ports", image],
+    queryFn: () => api.imagePorts(image),
+    enabled: image.trim().length > 0,
+    // An image reference is immutable once published (or, for a moving
+    // tag like :latest, changes rarely enough that re-fetching on every
+    // render would be wasteful) — cache for the session.
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
 export function useCreateInstance() {
   const client = useQueryClient();
   return useMutation({
@@ -266,6 +296,17 @@ export function usePaymentMethods() {
   return useQuery({
     queryKey: keys.paymentMethods,
     queryFn: api.listPaymentMethods,
+    // The Stripe webhook that flips a card from pending to verified runs
+    // asynchronously, well after confirmSetup() returns — so the
+    // invalidateQueries() the add-card dialog fires on success almost
+    // always refetches a still-pending row. Poll while anything hasn't
+    // settled yet, same pattern as useInstances' pollWhileSettling, so a
+    // newly added card flips to Verified on its own instead of the
+    // customer needing to manually refresh the page.
+    refetchInterval: (query) =>
+      query.state.data?.payment_methods.some((m) => m.status === "pending")
+        ? 3_000
+        : false,
   });
 }
 
@@ -335,12 +376,18 @@ export function useRegister() {
 /** Human-readable message for any error surfaced in the UI. */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    // Prefer the API's own message — it is specific and actionable
+    // ("insufficient home capacity", "no home node matches architecture
+    // arm64", "the allocated GPU was taken…"). Only fall back to a generic
+    // phrasing when the API sent no message, so a 503 from the CPU/home
+    // path is never mislabelled as a GPU-capacity blip.
+    if (error.message) return error.message;
     if (error.isCapacityUnavailable) {
       // Never phrase this as missing data: the customer's instances are
       // fine, the platform just cannot see them this second.
-      return "GPU capacity is temporarily unreachable. Your instances are unaffected — retrying.";
+      return "Capacity is temporarily unreachable. Your instances are unaffected.";
     }
-    return error.message;
+    return "Something went wrong.";
   }
   if (error instanceof Error) return error.message;
   return "Something went wrong.";

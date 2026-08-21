@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
   TBody,
@@ -267,9 +268,7 @@ export default function ControlCenterAccountPage({
             <CardTitle>Projects</CardTitle>
           </CardHeader>
           {projects.isLoading ? (
-            <div className="text-muted-foreground px-4 py-6 text-center text-sm">
-              Loading…
-            </div>
+            <Loading className="px-4 py-16" />
           ) : !projects.data?.projects.length ? (
             <div className="text-muted-foreground px-4 py-6 text-sm">
               No projects.

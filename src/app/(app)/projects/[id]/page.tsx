@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { use, useEffect, useState } from "react";
+import { use, useState } from "react";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { Field, Input, Select } from "@/components/ui/input";
+import { Loading } from "@/components/ui/loading";
+import { Tabs } from "@/components/ui/tabs";
 import { clearActiveProject, useActiveProject } from "@/lib/active-project";
 import {
   errorMessage,
@@ -17,6 +19,8 @@ import {
 } from "@/lib/api/hooks";
 import { fullTime } from "@/lib/utils";
 import type { Environment, Project } from "@/lib/api/types";
+
+import { ApiKeysPanel } from "./api-keys-panel";
 
 export default function ProjectSettingsPage({
   params,
@@ -32,7 +36,7 @@ export default function ProjectSettingsPage({
     return (
       <>
         <PageHeader breadcrumb={["Projects", "…"]} />
-        <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+        <Loading className="py-16" />
       </>
     );
   }
@@ -52,6 +56,35 @@ export default function ProjectSettingsPage({
 }
 
 function Settings({ project }: { project: Project }) {
+  // Tabs are client state under one URL (not routed), matching the Billing
+  // page's convention: General and API keys are two facets of one project's
+  // settings, not distinct resources a customer bookmarks.
+  const [tab, setTab] = useState<"general" | "api-keys">("general");
+
+  return (
+    <>
+      <PageHeader breadcrumb={["Projects", project.name, "Settings"]} />
+      <Tabs
+        tabs={[
+          { id: "general", label: "General" },
+          { id: "api-keys", label: "API keys" },
+        ]}
+        active={tab}
+        onChange={(id) => setTab(id as "general" | "api-keys")}
+      />
+      {tab === "general" ? (
+        // key on project.id so switching to a different project's settings
+        // remounts the form, resetting its useState from the new project's
+        // values — cleaner than a re-sync effect (which cascades renders).
+        <GeneralTab key={project.id} project={project} />
+      ) : (
+        <ApiKeysPanel projectId={project.id} />
+      )}
+    </>
+  );
+}
+
+function GeneralTab({ project }: { project: Project }) {
   const update = useUpdateProject(project.id);
 
   const [name, setName] = useState(project.name);
@@ -60,14 +93,6 @@ function Settings({ project }: { project: Project }) {
     project.environment ?? "",
   );
   const [deleting, setDeleting] = useState(false);
-
-  // Re-sync when the underlying project changes (a save, or switching to
-  // a different project's settings) so the form never shows stale values.
-  useEffect(() => {
-    setName(project.name);
-    setDescription(project.description ?? "");
-    setEnvironment(project.environment ?? "");
-  }, [project.id, project.name, project.description, project.environment]);
 
   const dirty =
     name !== project.name ||
@@ -88,8 +113,6 @@ function Settings({ project }: { project: Project }) {
 
   return (
     <>
-      <PageHeader breadcrumb={["Projects", project.name, "Settings"]} />
-
       <div className="flex max-w-2xl flex-col gap-6 p-6">
         <Card>
           <CardHeader>

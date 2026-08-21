@@ -25,9 +25,11 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
               if (error instanceof ApiError && error.isUnauthorized) {
                 return false;
               }
-              // 503 means GPU capacity is briefly unreachable (an agent
-              // reconnecting, a control-plane deploy). Worth retrying —
-              // this is exactly the transient case.
+              // 503 on a QUERY (a list/get) means capacity is briefly
+              // unreachable — an agent reconnecting, a control-plane deploy —
+              // so retrying is right. This applies to queries only; a create
+              // MUTATION that 503s (e.g. no home capacity) is not retried by
+              // TanStack and surfaces its real message immediately.
               if (error instanceof ApiError && error.isCapacityUnavailable) {
                 return failureCount < 3;
               }

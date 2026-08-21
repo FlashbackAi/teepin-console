@@ -5,6 +5,8 @@ import type {
   CreateInstanceRequest,
   CreatedAPIKey,
   APIKey,
+  HomeCapacity,
+  ImagePortsResponse,
   Instance,
   InstanceList,
   InstanceLogs,
@@ -92,28 +94,9 @@ export const tokens = {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(REFRESH_TOKEN_KEY);
   },
-  /**
-   * Project-scoped API key.
-   *
-   * Compute endpoints require an API key (`tpk_...`), not the user's
-   * JWT — the JWT identifies a person, the key identifies a project, and
-   * billing is per project. The console holds one for the active project
-   * so instance screens can call the same endpoints the CLI does.
-   */
-  get apiKey() {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(API_KEY_KEY);
-  },
   set(access: string, refresh: string) {
     localStorage.setItem(ACCESS_TOKEN_KEY, access);
     localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-  },
-  setApiKey(key: string) {
-    localStorage.setItem(API_KEY_KEY, key);
-  },
-  /** Drop the project API key, e.g. when switching projects. */
-  clearApiKey() {
-    localStorage.removeItem(API_KEY_KEY);
   },
   clear() {
     for (const key of SESSION_KEYS) {
@@ -122,28 +105,52 @@ export const tokens = {
   },
 };
 
+/**
+ * The project the console is currently operating in, mirrored here so
+ * `request()` can attach it to compute calls without importing
+ * active-project.tsx (which itself imports this module — a cycle).
+ *
+ * Compute endpoints authenticate with the user's own JWT plus this project
+ * id in the X-Project-ID header (verified server-side against the caller's
+ * account — see pkg/auth/middleware.go). This is the same model AWS's
+ * console uses: sign-in credentials reach the API directly, scoped to
+ * whichever resource you're viewing, rather than the console minting and
+ * managing a second long-lived credential of its own. Real API keys
+ * (`tpk_...`) stay purely opt-in, for a customer's own CLI/CI use — Settings
+ * → API keys.
+ */
+export const activeProject = {
+  current: null as string | null,
+  set(id: string | null) {
+    activeProject.current = id;
+  },
+};
+
 type RequestOptions = {
   method?: string;
   body?: unknown;
-  /** Use the project API key instead of the user's JWT. */
-  useApiKey?: boolean;
   /** Skip auth entirely (login, signup). */
   anonymous?: boolean;
+  /** This call is project-scoped (a compute endpoint) — attach
+   *  X-Project-ID from the active project alongside the JWT. */
+  projectScoped?: boolean;
 };
 
 async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = "GET", body, useApiKey, anonymous } = options;
+  const { method = "GET", body, anonymous, projectScoped } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   if (!anonymous) {
-    const token = useApiKey ? tokens.apiKey : tokens.access;
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (tokens.access) headers.Authorization = `Bearer ${tokens.access}`;
+    if (projectScoped && activeProject.current) {
+      headers["X-Project-ID"] = activeProject.current;
+    }
   }
 
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -245,37 +252,52 @@ export const api = {
     }),
 
   // -------------------------------------------------------------------
-  // Compute — these use the project API key, not the JWT
+  // Compute — project-scoped: the user's JWT + X-Project-ID
   // -------------------------------------------------------------------
   listInstances: () =>
-    request<InstanceList>("/v1/compute/instances", { useApiKey: true }),
+    request<InstanceList>("/v1/compute/instances", { projectScoped: true }),
 
   getInstance: (id: string) =>
-    request<Instance>(`/v1/compute/instances/${id}`, { useApiKey: true }),
+    request<Instance>(`/v1/compute/instances/${id}`, { projectScoped: true }),
 
   createInstance: (body: CreateInstanceRequest) =>
     request<Instance>("/v1/compute/instances", {
       method: "POST",
       body,
-      useApiKey: true,
+      projectScoped: true,
     }),
 
   deleteInstance: (id: string) =>
     request<{ message: string; id: string }>(`/v1/compute/instances/${id}`, {
       method: "DELETE",
-      useApiKey: true,
+      projectScoped: true,
     }),
 
   getInstanceLogs: (id: string, tail = 200) =>
     request<InstanceLogs>(
       `/v1/compute/instances/${id}/logs?tail=${tail}`,
-      { useApiKey: true },
+      { projectScoped: true },
     ),
+
+  /** Home CPU capacity: which tiers fit right now + free totals. Used by the
+   *  create dialog to enable/disable home tiers. 404 when home compute is off. */
+  homeCapacity: () =>
+    request<HomeCapacity>("/v1/compute/home-capacity", { projectScoped: true }),
 
   listInstanceTypes: () =>
     request<InstanceTypeList>("/v1/compute/instance-types", {
-      useApiKey: true,
+      projectScoped: true,
     }),
+
+  /** Ports a container image declares via EXPOSE — used to default the
+   *  create-instance form's Port field. Never errors in practice: an
+   *  unresolvable image (private, unlisted registry, no EXPOSE) just
+   *  returns an empty list, so the customer falls back to typing a port. */
+  imagePorts: (image: string) =>
+    request<ImagePortsResponse>(
+      `/v1/compute/image-ports?image=${encodeURIComponent(image)}`,
+      { projectScoped: true },
+    ),
 
   // -------------------------------------------------------------------
   // Billing
@@ -310,8 +332,8 @@ export const api = {
     request<{ balance: number }>("/v1/billing/credits"),
 
   // -------------------------------------------------------------------
-  // Payment methods — account-scoped, JWT (a card belongs to the account,
-  // not a project), so no useApiKey.
+  // Payment methods — account-scoped, plain JWT (a card belongs to the
+  // account, not a project — no X-Project-ID here).
   // -------------------------------------------------------------------
   listPaymentMethods: () =>
     request<{ payment_methods: PaymentMethod[]; count: number }>(
@@ -319,10 +341,17 @@ export const api = {
     ),
 
   // Starts adding a card: returns the SetupIntent client secret the
-  // browser hands to Stripe.js to confirm the card. The card only becomes
-  // usable once Stripe's webhook confirms it.
+  // browser hands to Stripe.js to confirm the card, plus the id of the
+  // pending payment-method row this call creates (before any card is
+  // entered — Stripe requires the SetupIntent to exist before the Payment
+  // Element can render). The card only becomes usable once Stripe's
+  // webhook confirms it. payment_method_id exists so the caller can clean
+  // this row up via removePaymentMethod() if the flow is never completed
+  // — otherwise a cancelled or failed attempt leaves a permanent orphaned
+  // "Validating…" card with nothing able to remove it (found live
+  // 2026-08-21).
   createSetupIntent: () =>
-    request<{ client_secret: string }>(
+    request<{ client_secret: string; payment_method_id: string }>(
       "/v1/accounts/current/payment-methods/setup-intent",
       { method: "POST" },
     ),

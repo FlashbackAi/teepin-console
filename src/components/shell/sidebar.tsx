@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   Boxes,
   ChevronDown,
@@ -16,6 +16,7 @@ import {
   Settings,
   Sun,
   BookOpen,
+  Zap,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -53,13 +54,61 @@ type NavItem = {
   meta?: string;
 };
 
+/**
+ * Which compute section (GPU or CPU) owns the instance detail page
+ * currently on screen.
+ *
+ * GPU and CPU instance detail share one URL shape, /compute/[id] — the
+ * path alone can't say which section a given instance belongs to, since
+ * that depends on the instance's own type (gpu.* vs everything else),
+ * known only once its data has loaded. The detail page announces its
+ * section here via useAnnounceComputeSection; the sidebar reads it to
+ * highlight the right link instead of defaulting to GPU by URL prefix.
+ * Reset on unmount so navigating away (or to a page that never
+ * announces) doesn't leave a stale section highlighted.
+ */
+const detailSectionStore = {
+  current: null as "gpu" | "cpu" | null,
+  listeners: new Set<() => void>(),
+  subscribe(listener: () => void) {
+    detailSectionStore.listeners.add(listener);
+    return () => detailSectionStore.listeners.delete(listener);
+  },
+  get() {
+    return detailSectionStore.current;
+  },
+  set(section: "gpu" | "cpu" | null) {
+    if (detailSectionStore.current === section) return;
+    detailSectionStore.current = section;
+    detailSectionStore.listeners.forEach((l) => l());
+  },
+};
+
+/** Called by the instance detail page once it knows which section its
+ *  instance belongs to (or with null while still loading / on unmount). */
+export function useAnnounceComputeSection(section: "gpu" | "cpu" | null) {
+  useEffect(() => {
+    detailSectionStore.set(section);
+    return () => detailSectionStore.set(null);
+  }, [section]);
+}
+
+function useDetailSection() {
+  return useSyncExternalStore(
+    detailSectionStore.subscribe,
+    detailSectionStore.get,
+    () => null,
+  );
+}
+
 export function Sidebar({
   accountName,
   accountNumber,
   projects,
   activeProject,
   onSelectProject,
-  instanceCount,
+  gpuRunning,
+  cpuRunning,
   monthToDate,
 }: {
   accountName: string;
@@ -67,19 +116,36 @@ export function Sidebar({
   projects: Project[];
   activeProject?: Project;
   onSelectProject: (id: string) => void;
-  instanceCount?: number;
+  /** Running GPU / CPU instance counts. Shown as a badge only when > 0 —
+      a zero badge is noise, and the number means "running right now". */
+  gpuRunning?: number;
+  cpuRunning?: number;
   monthToDate?: string;
 }) {
   const pathname = usePathname();
+  const detailSection = useDetailSection();
+
+  // /compute/[id] is shared by GPU and CPU instances — neither "/compute"
+  // nor "/compute/cpu" is a real prefix match for it in the way that
+  // distinguishes the two list pages. On such a page, trust the section
+  // the detail page announced (once its instance has loaded) instead of
+  // the URL, which cannot tell GPU and CPU instances apart.
+  const onInstanceDetail =
+    pathname.startsWith("/compute/") && pathname !== "/compute/cpu";
 
   const projectItems: NavItem[] = [
     {
       label: "GPU compute",
       href: "/compute",
-      icon: Cpu,
-      meta: instanceCount !== undefined ? String(instanceCount) : undefined,
+      icon: Zap,
+      meta: gpuRunning ? String(gpuRunning) : undefined,
     },
-    { label: "CPU compute", icon: Cpu, soon: true },
+    {
+      label: "CPU compute",
+      href: "/compute/cpu",
+      icon: Cpu,
+      meta: cpuRunning ? String(cpuRunning) : undefined,
+    },
     { label: "Storage", icon: Database, soon: true },
     { label: "Registry", href: "/registry", icon: Package },
     // Settings belong to the project being viewed, so the link carries
@@ -105,13 +171,24 @@ export function Sidebar({
     { label: "Account", href: "/settings/account", icon: Settings },
   ];
 
+  // Every nav href, so the active-route matcher can defer to the most
+  // specific sibling (e.g. /compute/cpu wins over /compute).
+  const allHrefs = [
+    "/projects",
+    ...projectItems,
+    ...billingChildren,
+    ...accountItems,
+  ]
+    .map((i) => (typeof i === "string" ? i : i.href))
+    .filter((h): h is string => Boolean(h));
+
   return (
     <aside className="hairline-r flex h-dvh w-60 shrink-0 flex-col border-border bg-card">
       {/* Account identity. The number is pinned because customers quote
           it to support, and hunting for it during an incident is a
           small, avoidable indignity. */}
       <div className="hairline-b border-border px-3 py-3">
-        <Wordmark className="mb-3 h-8" />
+        <Wordmark height={32} className="mb-3" />
         <div className="text-foreground truncate text-sm font-medium">
           {accountName}
         </div>
@@ -125,7 +202,7 @@ export function Sidebar({
           href="/projects"
           icon={Boxes}
           label="Projects"
-          active={pathname.startsWith("/projects")}
+          active={isActiveRoute(pathname, "/projects", allHrefs)}
         />
 
         <div className="mt-4 mb-1 px-1">
@@ -136,13 +213,19 @@ export function Sidebar({
           />
         </div>
 
-        {projectItems.map((item) => (
-          <NavLink
-            key={item.label}
-            {...item}
-            active={item.href ? pathname.startsWith(item.href) : false}
-          />
-        ))}
+        {projectItems.map((item) => {
+          let active = item.href
+            ? isActiveRoute(pathname, item.href, allHrefs)
+            : false;
+          // On a shared /compute/[id] detail page, override the URL-based
+          // guess with the section the page itself announced.
+          if (onInstanceDetail && detailSection) {
+            active =
+              (item.label === "GPU compute" && detailSection === "gpu") ||
+              (item.label === "CPU compute" && detailSection === "cpu");
+          }
+          return <NavLink key={item.label} {...item} active={active} />;
+        })}
 
         <div className="hairline-b my-3 border-border" />
 
@@ -151,13 +234,14 @@ export function Sidebar({
           icon={CreditCard}
           items={billingChildren}
           pathname={pathname}
+          siblings={allHrefs}
         />
 
         {accountItems.map((item) => (
           <NavLink
             key={item.label}
             {...item}
-            active={item.href ? pathname.startsWith(item.href) : false}
+            active={item.href ? isActiveRoute(pathname, item.href, allHrefs) : false}
           />
         ))}
       </nav>
@@ -239,14 +323,16 @@ function NavGroup({
   icon: Icon,
   items,
   pathname,
+  siblings,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   items: NavItem[];
   pathname: string;
+  siblings: string[];
 }) {
   const childActive = (href?: string) =>
-    href ? isActiveRoute(pathname, href) : false;
+    href ? isActiveRoute(pathname, href, siblings) : false;
   const anyActive = items.some((c) => childActive(c.href));
 
   // `userOpen` is the explicit toggle; the group is shown open whenever
@@ -308,24 +394,30 @@ function NavGroup({
 }
 
 /**
- * Whether `href` is the active route. Exact match, EXCEPT a child under
- * the same path prefix must not light up its parent: /billing and
- * /billing/credits are distinct screens, so startsWith would wrongly mark
- * /billing active when on /billing/credits. A trailing-segment check
- * keeps them exclusive while still treating /billing/invoices/123 as
- * under /billing.
+ * Whether `href` is the active route, given the full set of sibling nav
+ * hrefs.
+ *
+ * Exact match always wins. For a deeper path (e.g. /compute/cpu, or
+ * /billing/invoices/123) the item is active only if it is the LONGEST
+ * matching prefix among all siblings — so /compute does not light up while
+ * on /compute/cpu (that's CPU compute's route), but /billing still lights
+ * up on /billing/invoices/123 (no sibling owns that path). This is the
+ * general rule; it needs no per-route special cases.
  */
-function isActiveRoute(pathname: string, href: string): boolean {
+function isActiveRoute(
+  pathname: string,
+  href: string,
+  siblings: string[],
+): boolean {
   if (pathname === href) return true;
-  // /billing must stay active on /billing/invoices/... but NOT on
-  // /billing/credits (which is its own nav item). Only extend the match
-  // when the next segment is not itself a sibling nav route.
-  if (href === "/billing") {
-    return (
-      pathname.startsWith("/billing/") && !pathname.startsWith("/billing/credits")
-    );
-  }
-  return pathname.startsWith(href + "/");
+  if (!pathname.startsWith(href + "/")) return false;
+  // A more specific sibling (a longer href that also matches) owns this
+  // path — defer to it so only one item is ever active.
+  return !siblings.some(
+    (other) =>
+      other.length > href.length &&
+      (pathname === other || pathname.startsWith(other + "/")),
+  );
 }
 
 function SignOut() {

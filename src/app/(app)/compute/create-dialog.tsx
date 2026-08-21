@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -14,24 +13,27 @@ import {
   useInstanceTypes,
 } from "@/lib/api/hooks";
 import { formatRate } from "@/lib/utils";
+import {
+  PriceLine,
+  PaymentGateNotice,
+  useAutoDetectedPort,
+} from "./create-shared";
 
 /**
- * Create instance.
+ * Create a GPU instance.
  *
  * The cost is shown continuously, not at the end. A customer must never
  * discover the rate after committing — particularly because the platform
  * may allocate MORE than requested when no exact GPU slice fits, and
  * bill for what it allocated.
+ *
+ * CPU (home) compute has its OWN dialog + page (create-cpu-dialog.tsx) to
+ * match the separate sidebar sections — this one is GPU only.
  */
 export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  // The dialog only opens once the key is ready (the button is disabled
-  // until then), so no gate is needed here.
   const types = useInstanceTypes();
   const create = useCreateInstance();
-  // undefined while loading, false when the account has no verified card.
-  // The backend enforces this (402); the pre-check just turns a
-  // post-submit error into an up-front, actionable message.
   const canProvision = useCanProvision();
 
   const [name, setName] = useState("");
@@ -40,22 +42,33 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
   const [cpuUnits, setCpuUnits] = useState(2);
   const [memory, setMemory] = useState("8GB");
   const [command, setCommand] = useState("");
+  // Manual port entry — only shown/used when auto-detection finds
+  // nothing (see PortDetection in create-shared.tsx). The platform never
+  // asks for a port it can already determine on its own.
+  const [port, setPort] = useState("");
+  const detection = useAutoDetectedPort(image);
 
   const available = types.data?.instance_types ?? [];
   const selected = available.find((t) => t.gpu_vram === vram);
 
-  // Default to the smallest available type once capacity is known.
+  // Default to the smallest available GPU type once capacity is known.
   if (!vram && available.length > 0) {
     setVram(available[0].gpu_vram);
   }
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-
-    // Split on whitespace into command + args, the way a shell would.
-    // The API takes them separately (command overrides ENTRYPOINT, args
-    // overrides CMD), but customers think in terms of one command line.
     const parts = command.trim().split(/\s+/).filter(Boolean);
+
+    let containerPort: number | undefined;
+    if (detection.status === "detected") {
+      containerPort = detection.port;
+    } else {
+      const parsed = Number(port);
+      if (port.trim() && Number.isFinite(parsed) && parsed > 0) {
+        containerPort = parsed;
+      }
+    }
 
     create.mutate(
       {
@@ -66,13 +79,11 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
         memory,
         command: parts.length > 0 ? [parts[0]] : undefined,
         args: parts.length > 1 ? parts.slice(1) : undefined,
+        ports: containerPort ? [{ container: containerPort }] : undefined,
       },
       {
         onSuccess: (instance) => {
           onClose();
-          // Straight to the detail page: the instance is `pending` and
-          // the customer wants to watch it start, not hunt for it in a
-          // list.
           router.push(`/compute/${instance.id}`);
         },
       },
@@ -83,7 +94,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog
-      title="Create instance"
+      title="Create GPU instance"
       description="Deploy a container image on a GPU."
       onClose={onClose}
       footer={
@@ -96,7 +107,15 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
             size="sm"
             form="create-instance"
             type="submit"
-            disabled={create.isPending || noCapacity || canProvision === false}
+            disabled={
+              create.isPending ||
+              noCapacity ||
+              canProvision === false ||
+              // See create-cpu-dialog.tsx's identical guard: submitting
+              // before port detection resolves would create an instance
+              // with no port and silently no endpoint.
+              detection.status === "unknown"
+            }
           >
             {create.isPending ? "Creating…" : "Create instance"}
           </Button>
@@ -108,25 +127,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
         onSubmit={submit}
         className="flex flex-col gap-4"
       >
-        {canProvision === false && (
-          <div className="hairline rounded-md border-border bg-muted/50 px-3 py-2.5 text-sm">
-            <p className="text-foreground font-medium">
-              Add a payment method to launch instances
-            </p>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              A validated card is required before any resource can be
-              created.{" "}
-              <Link
-                href="/settings/payment"
-                className="text-foreground underline"
-                onClick={onClose}
-              >
-                Add a card
-              </Link>
-              .
-            </p>
-          </div>
-        )}
+        {canProvision === false && <PaymentGateNotice onClose={onClose} />}
 
         <Field
           label="Name"
@@ -153,7 +154,11 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
             required
             placeholder="nvidia/cuda:12.3.1-base-ubuntu22.04"
             value={image}
-            onChange={(e) => setImage(e.target.value)}
+            onChange={(e) => {
+              setImage(e.target.value);
+              // A manually-typed port belonged to the OLD image.
+              setPort("");
+            }}
           />
         </Field>
 
@@ -174,6 +179,24 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
             onChange={(e) => setCommand(e.target.value)}
           />
         </Field>
+
+        {detection.status === "not-found" && (
+          <Field
+            label="Port"
+            hint="We couldn't detect a port for this image — tell us which port your application listens on, or leave blank for a workload with no public endpoint. Reachable at https://<instance-id>.teepin.com once running."
+            htmlFor="port"
+          >
+            <Input
+              id="port"
+              type="number"
+              min={1}
+              max={65535}
+              placeholder="80"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          </Field>
+        )}
 
         {noCapacity ? (
           <p className="text-muted-foreground text-xs">
@@ -222,18 +245,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
           </Field>
         </div>
 
-        {/* The number the customer is agreeing to. Shown before the
-            button, never after the click. */}
-        {selected && (
-          <div className="hairline flex items-baseline justify-between rounded-md border-border bg-muted/50 px-3 py-2.5">
-            <span className="text-muted-foreground text-xs">
-              Billed while running
-            </span>
-            <span className="tabular text-foreground text-sm font-medium">
-              {formatRate(selected.price_per_hour)}
-            </span>
-          </div>
-        )}
+        {selected && <PriceLine rate={selected.price_per_hour} />}
 
         {create.isError && (
           <p className="text-destructive text-xs">

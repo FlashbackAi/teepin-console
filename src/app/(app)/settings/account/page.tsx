@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
+import { Loading } from "@/components/ui/loading";
 import {
   errorMessage,
   useAccount,
@@ -37,7 +38,7 @@ export default function AccountSettingsPage() {
     return (
       <>
         <PageHeader breadcrumb={["Account"]} />
-        <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+        <Loading className="py-16" />
       </>
     );
   }

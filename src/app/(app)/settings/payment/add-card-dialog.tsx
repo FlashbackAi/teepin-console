@@ -47,12 +47,32 @@ export function AddCardDialog({ onClose }: { onClose: () => void }) {
   // guard set and skips the call.
   const setupStarted = useRef(false);
 
+  // The pending payment-method row createSetupIntent() creates BEFORE any
+  // card is entered — Stripe requires the SetupIntent to exist before the
+  // Payment Element can render. Tracked so this dialog can remove it if
+  // the customer never completes the flow (closes the dialog by any
+  // means, or Stripe.js itself fails to load) — cleared to null once the
+  // card is actually submitted, so a successful add is never removed.
+  // Found live 2026-08-21: without this, an abandoned or failed attempt
+  // left a permanent "Validating…" card nothing could ever remove.
+  const pendingIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (setupStarted.current) return;
     setupStarted.current = true;
 
-    let cancelled = false;
-
+    // No `cancelled`-on-cleanup guard here, deliberately: React 18's
+    // StrictMode dev double-invoke (mount → cleanup → mount again) would
+    // fire that cleanup for THIS run immediately, before any await below
+    // resolves — so by the time setup() reached its own `if (cancelled)
+    // return`, it would exit having never called setReady() or setError()
+    // for ANY outcome. The second (kept) invocation never starts its own
+    // work either, since setupStarted.current is already true by then. Net
+    // effect: permanently stuck on "Loading secure form…" with no error,
+    // in dev only — found live 2026-08-21 chasing exactly that symptom
+    // through several other candidate causes first. Safe to omit: React 18
+    // already no-ops a setState call on a truly-unmounted component, so
+    // there is no real unmounted-update risk being traded away here.
     async function setup() {
       if (!stripePromise) {
         setError("Payments are not configured.");
@@ -61,9 +81,30 @@ export function AddCardDialog({ onClose }: { onClose: () => void }) {
       try {
         // Get a SetupIntent from our API, then mount the Payment Element
         // bound to its client secret.
-        const { client_secret } = await api.createSetupIntent();
-        const stripe = await stripePromise;
-        if (!stripe || cancelled) return;
+        const { client_secret, payment_method_id } =
+          await api.createSetupIntent();
+        pendingIdRef.current = payment_method_id;
+
+        // loadStripe() has two distinct failure shapes, both found live
+        // (2026-08-21): it can resolve to null (a load error stripe-js
+        // itself detected), or — when a blocker drops the request to
+        // js.stripe.com without ever firing the script's load or error
+        // event — it can hang and never settle at all. Racing it against
+        // a timeout turns the second case into the first, so both end up
+        // in the one `!stripe` branch below instead of leaving the dialog
+        // stuck on "Loading secure form…" forever with no explanation.
+        const stripe = await Promise.race([
+          stripePromise,
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 10_000),
+          ),
+        ]);
+        if (!stripe) {
+          setError(
+            "Could not load the secure payment form. Check your network connection (an ad blocker or firewall may be blocking Stripe) and try again.",
+          );
+          return;
+        }
 
         const elements = stripe.elements({ clientSecret: client_secret });
         const paymentElement = elements.create("payment");
@@ -73,15 +114,30 @@ export function AddCardDialog({ onClose }: { onClose: () => void }) {
         elementsRef.current = elements;
         setReady(true);
       } catch (e) {
-        if (!cancelled) setError(errorMessage(e));
+        setError(errorMessage(e));
       }
     }
 
     setup();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  // Fires on every way this dialog can be dismissed without completing —
+  // Cancel, the X button, Escape, and clicking the backdrop all route
+  // through Dialog's single onClose prop (see dialog.tsx), so wrapping it
+  // once here covers all of them. Best-effort and fire-and-forget: if the
+  // cleanup call itself fails, the customer still sees the dialog close,
+  // and the row is harmless leftover state rather than something visibly
+  // broken — better than blocking the close on a network call.
+  const handleClose = () => {
+    if (pendingIdRef.current) {
+      const id = pendingIdRef.current;
+      pendingIdRef.current = null;
+      api.removePaymentMethod(id).catch(() => {
+        // Best-effort — see comment above.
+      });
+    }
+    onClose();
+  };
 
   const submit = async () => {
     if (!stripeRef.current || !elementsRef.current) return;
@@ -105,6 +161,10 @@ export function AddCardDialog({ onClose }: { onClose: () => void }) {
       return;
     }
 
+    // A real submission was made — this row is no longer "abandoned",
+    // so handleClose must never remove it after this point.
+    pendingIdRef.current = null;
+
     // Refresh the list; the new card shows as pending until the webhook
     // marks it verified.
     queryClient.invalidateQueries({ queryKey: keys.paymentMethods });
@@ -115,10 +175,10 @@ export function AddCardDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       title="Add a payment method"
       description="Validated with Stripe — no charge is made."
-      onClose={onClose}
+      onClose={handleClose}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={handleClose}>
             Cancel
           </Button>
           <Button

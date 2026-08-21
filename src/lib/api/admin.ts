@@ -4,6 +4,9 @@ import type {
   CreditTransaction,
   Invoice,
   InvoiceChargeState,
+  Node,
+  NodeCapacity,
+  Pricing,
   Project,
 } from "./types";
 
@@ -199,11 +202,79 @@ export const admin = {
     ),
 
   getPricing: () =>
-    adminRequest<{ vram_price_per_gb_hour: number }>("/v1/admin/pricing"),
+    adminRequest<Pricing>("/v1/admin/pricing"),
 
   updatePricing: (vramPricePerGBHour: number) =>
-    adminRequest<{ vram_price_per_gb_hour: number }>("/v1/admin/pricing", {
+    adminRequest<Pricing>("/v1/admin/pricing", {
       method: "PUT",
       body: { vram_price_per_gb_hour: vramPricePerGBHour },
     }),
+
+  /** Home-compute CPU + memory rates. Zero is valid ("do not charge"), so
+   *  neither field is required — a home CPU instance bills nothing until a
+   *  rate is set. */
+  updateCPUPricing: (body: {
+    cpu_price_per_core_hour: number;
+    memory_price_per_gb_hour: number;
+  }) =>
+    adminRequest<Pricing>("/v1/admin/pricing/cpu", { method: "PUT", body }),
+
+  // --- Nodes (home-compute pilot) -----------------------------------------
+  // These routes exist only when the control plane has HOME_COMPUTE_ENABLED;
+  // otherwise they 404 and the Nodes page shows a "not enabled" state.
+
+  /** Every persisted node — home and datacenter — for the control centre,
+   *  each with its capacity breakdown (detected / rentable / used / free). */
+  listNodes: () =>
+    adminRequest<{ nodes: Node[]; capacity?: NodeCapacity[]; count: number }>(
+      "/v1/admin/nodes",
+    ),
+
+  /** Set how much of a node to rent out. Server caps at detected specs
+   *  (400 on over-commit). Zero offers nothing. */
+  setNodeReservation: (
+    nodeId: string,
+    body: { cpu_cores: number; memory_gb: number },
+  ) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/nodes/${nodeId}/reservation`,
+      { method: "PUT", body },
+    ),
+
+  /** Rename a node (operator label). */
+  renameNode: (nodeId: string, nodeName: string) =>
+    adminRequest<{ message: string }>(`/v1/admin/nodes/${nodeId}`, {
+      method: "PATCH",
+      body: { node_name: nodeName },
+    }),
+
+  /** Delete a node. 409 if it still has active instances (terminate them or
+   *  disable the node first). */
+  deleteNode: (nodeId: string) =>
+    adminRequest<{ message: string }>(`/v1/admin/nodes/${nodeId}`, {
+      method: "DELETE",
+    }),
+
+  /** Mints a one-time enrollment token. The class is fixed HERE by the
+   *  operator; the enrolling agent cannot choose or change it. Returns the
+   *  plaintext token exactly once. */
+  createNodeEnrollmentToken: (body: {
+    label: string;
+    class?: "home" | "datacenter";
+    ttl_minutes?: number;
+  }) =>
+    adminRequest<{
+      token: string;
+      class: string;
+      label: string;
+      expires_at: string;
+    }>("/v1/admin/nodes/enrollment-tokens", { method: "POST", body }),
+
+  /** Takes a node out of service: no longer schedulable, credential stops
+   *  authenticating. */
+  disableNode: (nodeId: string) =>
+    adminRequest<{ message: string; id: string }>(
+      `/v1/admin/nodes/${nodeId}/disable`,
+      { method: "POST" },
+    ),
 };

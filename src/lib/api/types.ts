@@ -174,6 +174,11 @@ export interface CreateInstanceRequest {
   cpu_units: number;
   /** e.g. "8GB". */
   memory: string;
+  /** "home" opts the workload onto a consumer CPU node. Omit for the
+   *  default datacenter/GPU path. */
+  node_class?: "home";
+  /** Constrain a home workload to a CPU architecture ("amd64"/"arm64"). */
+  arch?: string;
   command?: string[];
   args?: string[];
   env?: Record<string, string>;
@@ -200,6 +205,15 @@ export interface InstanceLogs {
   instance_id: string;
   tail: number;
   logs: string;
+}
+
+export interface ImagePort {
+  port: number;
+  protocol: string;
+}
+
+export interface ImagePortsResponse {
+  ports: ImagePort[];
 }
 
 // ---------------------------------------------------------------------
@@ -301,6 +315,88 @@ export interface InvoiceChargeState {
   last_charge_error?: string;
   /** The PaymentIntent we started for this invoice, if any. */
   stripe_payment_intent_id?: string;
+}
+
+/** Platform pricing. GPU is billed on VRAM; home CPU on cores + memory
+ *  (both default 0 until an operator sets a rate). */
+export interface Pricing {
+  vram_price_per_gb_hour: number;
+  cpu_price_per_core_hour: number;
+  memory_price_per_gb_hour: number;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+/** A persisted compute node (home-compute pilot). Consumer-grade capacity
+ *  and the datacenter GPU fleet both appear here, distinguished by `class`. */
+export interface Node {
+  id: string;
+  node_name: string;
+  provider_id: string;
+  /** "datacenter" (GPU fleet) or "home" (consumer-grade CPU capacity). */
+  class: "datacenter" | "home";
+  region?: string;
+  cpu_cores?: number;
+  memory_gb?: number;
+  /** A consumer GPU is recorded as an attribute, never as sellable VRAM. */
+  gpu_model?: string;
+  gpu_count: number;
+  mig_capable: boolean;
+  os?: string;
+  arch?: string;
+  agent_version?: string;
+  /** enrolled | online | offline | disabled. */
+  status: "enrolled" | "online" | "offline" | "disabled";
+  last_seen_at?: string;
+  revoked_at?: string;
+  /** How much of the detected specs the operator offers for rent (0 until
+   *  a reservation is set). Detected cpu_cores/memory_gb are the ceiling. */
+  rentable_cpu_cores: number;
+  rentable_memory_gb: number;
+  /** Whether this node's own Kubernetes was reachable as of its last
+   *  report (refreshed ~30s). Distinct from `status`: a node can be
+   *  "online" (its agent is connected) while this is false (its local
+   *  k3s — e.g. crashed — cannot schedule pods). Placement excludes such
+   *  a node the same as an offline one. */
+  k8s_ready: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Per-node capacity breakdown (control centre). Used is derived from running
+ *  instances; free = rentable - used, clamped at 0. */
+export interface NodeCapacity {
+  node_id: string;
+  node_name: string;
+  class: "datacenter" | "home";
+  status: string;
+  detected_cpu_cores: number;
+  detected_memory_gb: number;
+  rentable_cpu_cores: number;
+  rentable_memory_gb: number;
+  used_cpu_cores: number;
+  used_memory_gb: number;
+  free_cpu_cores: number;
+  free_memory_gb: number;
+}
+
+/** A CPU instance tier with a "fits right now" flag, for the create dialog. */
+export interface TierFit {
+  id: string;
+  name: string;
+  cpu_units: number;
+  memory_gb: number;
+  price_per_hour: number;
+  fits: boolean;
+}
+
+/** Customer-facing home capacity summary: tiers + fitment + free totals. */
+export interface HomeCapacity {
+  tiers: TierFit[];
+  total_free_cpu_cores: number;
+  total_free_memory_gb: number;
+  max_free_cpu_cores: number;
+  max_free_memory_gb: number;
 }
 
 export interface BillingSummary {

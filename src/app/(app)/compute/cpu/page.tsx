@@ -17,27 +17,34 @@ import {
   Table,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/shell/page-header";
-import { CreateInstanceDialog } from "./create-dialog";
+import { CreateCPUInstanceDialog } from "../create-cpu-dialog";
 import { useActiveProject } from "@/lib/active-project";
 import { errorMessage, useInstances } from "@/lib/api/hooks";
 import { formatRate, fullTime, timeAgo } from "@/lib/utils";
 
-export default function ComputePage() {
+/**
+ * CPU compute (home nodes).
+ *
+ * The instance store is shared with GPU compute — this page filters to CPU
+ * instances (non-GPU instance types). Same list/detail components; only the
+ * create flow and the filter differ.
+ */
+export default function CPUComputePage() {
   const { project } = useActiveProject();
   const ready = Boolean(project);
   const instances = useInstances(ready);
   const [creating, setCreating] = useState(false);
 
-  // GPU instances only — CPU (home) instances live on /compute/cpu. A GPU
-  // instance's type is gpu.*; anything else is filtered out here.
-  const rows = (instances.data?.instances ?? []).filter((i) =>
-    (i.instance_type ?? "").startsWith("gpu"),
+  // A CPU instance has no GPU VRAM; its type is a cpu.* tier (or unset for a
+  // bare CPU workload). GPU instances are gpu.* — exclude those.
+  const rows = (instances.data?.instances ?? []).filter(
+    (i) => !(i.instance_type ?? "").startsWith("gpu"),
   );
 
   return (
     <>
       <PageHeader
-        breadcrumb={["Projects", project?.name ?? "…", "GPU compute"]}
+        breadcrumb={["Projects", project?.name ?? "…", "CPU compute"]}
         action={
           <Button
             variant="primary"
@@ -55,12 +62,8 @@ export default function ComputePage() {
           {instances.isLoading || !ready ? (
             <Loading className="px-4 py-16" />
           ) : instances.isError ? (
-            /* NEVER show "no instances" for a failed query. The customer's
-               instances are running and being billed; saying they do not
-               exist is the single most alarming thing this page could get
-               wrong. */
             <EmptyState
-              title="Cannot reach GPU capacity"
+              title="Cannot reach compute capacity"
               description={errorMessage(instances.error)}
               action={
                 <Button
@@ -74,8 +77,8 @@ export default function ComputePage() {
             />
           ) : rows.length === 0 ? (
             <EmptyState
-              title="No instances"
-              description="Deploy a container on a GPU. You are billed per GB of VRAM per hour, only while it runs."
+              title="No CPU instances"
+              description="Run a container on consumer-grade CPU capacity. Billed per vCPU + memory per hour, only while it runs."
               action={
                 <Button
                   variant="primary"
@@ -143,7 +146,7 @@ export default function ComputePage() {
       </div>
 
       {creating && (
-        <CreateInstanceDialog onClose={() => setCreating(false)} />
+        <CreateCPUInstanceDialog onClose={() => setCreating(false)} />
       )}
     </>
   );

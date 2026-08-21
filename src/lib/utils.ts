@@ -26,9 +26,23 @@ export function formatCost(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-/** Format an hourly rate. */
+/** Format an hourly rate. Sub-cent rates (common for CPU) keep more decimals
+ *  so the displayed number equals the billed number — never rounds $0.008 to
+ *  $0.01, which would recreate a quote-vs-bill mismatch. */
 export function formatRate(perHour: number): string {
+  if (perHour > 0 && perHour < 0.01) return `$${perHour.toFixed(4)}/hr`;
   return `$${perHour.toFixed(2)}/hr`;
+}
+
+/** Hours in an average month (365.25/12 × 24), for hourly→monthly display.
+ *  Metering is hourly; monthly is purely a readable presentation of the same
+ *  rate — the market convention for cheap CPU (Akash et al.). */
+const HOURS_PER_MONTH = 730;
+
+/** Format an hourly rate as an approximate monthly cost, e.g. "~$5.84/mo".
+ *  Used for CPU tiers whose hourly price is sub-cent and unreadable. */
+export function formatMonthly(perHour: number): string {
+  return `~$${(perHour * HOURS_PER_MONTH).toFixed(2)}/mo`;
 }
 
 /**

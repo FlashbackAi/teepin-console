@@ -26,10 +26,14 @@ export default function ControlCenterPricingPage() {
   });
 
   const [rate, setRate] = useState("");
+  const [cpuRate, setCpuRate] = useState("");
+  const [memRate, setMemRate] = useState("");
 
   useEffect(() => {
     if (pricing.data) {
       setRate(String(pricing.data.vram_price_per_gb_hour));
+      setCpuRate(String(pricing.data.cpu_price_per_core_hour ?? 0));
+      setMemRate(String(pricing.data.memory_price_per_gb_hour ?? 0));
     }
   }, [pricing.data]);
 
@@ -38,8 +42,22 @@ export default function ControlCenterPricingPage() {
     onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
   });
 
+  const updateCPU = useMutation({
+    mutationFn: () =>
+      admin.updateCPUPricing({
+        cpu_price_per_core_hour: Number(cpuRate),
+        memory_price_per_gb_hour: Number(memRate),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
+  });
+
   const current = pricing.data?.vram_price_per_gb_hour;
   const dirty = rate !== "" && Number(rate) !== current;
+  const cpuDirty =
+    (cpuRate !== "" &&
+      Number(cpuRate) !== pricing.data?.cpu_price_per_core_hour) ||
+    (memRate !== "" &&
+      Number(memRate) !== pricing.data?.memory_price_per_gb_hour);
 
   return (
     <>
@@ -94,6 +112,77 @@ export default function ControlCenterPricingPage() {
                   {update.isPending ? "Saving…" : "Update rate"}
                 </Button>
                 {update.isSuccess && !dirty && (
+                  <span className="text-muted-foreground text-xs">Saved.</span>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Home compute (CPU) rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                updateCPU.mutate();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <Field
+                label="Price per vCPU-hour (USD)"
+                hint="Akash reference: ~$0.0022/hr. 0 = do not charge."
+                htmlFor="cpu-rate"
+              >
+                <Input
+                  id="cpu-rate"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={cpuRate}
+                  onChange={(e) => setCpuRate(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Price per GB-hour of memory (USD)"
+                hint="Akash reference: ~$0.0011/hr. 0 = do not charge."
+                error={updateCPU.isError ? errorMessage(updateCPU.error) : undefined}
+                htmlFor="mem-rate"
+              >
+                <Input
+                  id="mem-rate"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={memRate}
+                  onChange={(e) => setMemRate(e.target.value)}
+                />
+              </Field>
+
+              {/* The safety note: shipping at 0 means home CPU is metered but
+                  not charged until someone deliberately sets a rate. */}
+              <p className="text-muted-foreground text-xs">
+                Home CPU instances are metered continuously but bill nothing
+                until a non-zero rate is set. Applies to the next billing tick;
+                existing usage keeps its metered rate.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!cpuDirty || updateCPU.isPending}
+                >
+                  {updateCPU.isPending ? "Saving…" : "Update CPU rates"}
+                </Button>
+                {updateCPU.isSuccess && !cpuDirty && (
                   <span className="text-muted-foreground text-xs">Saved.</span>
                 )}
               </div>

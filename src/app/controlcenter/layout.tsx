@@ -80,7 +80,7 @@ function Unlock({ onUnlocked }: { onUnlocked: () => void }) {
     <div className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8">
-          <Wordmark className="h-9" />
+          <Wordmark height={36} />
           <p className="text-muted-foreground mt-3 text-sm">Control centre</p>
         </div>
 
@@ -121,6 +121,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   const items = [
     { label: "Accounts", href: "/controlcenter" },
+    { label: "Nodes", href: "/controlcenter/nodes" },
     { label: "Pricing", href: "/controlcenter/pricing" },
   ];
 
@@ -128,7 +129,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="flex">
       <aside className="hairline-r flex h-dvh w-52 shrink-0 flex-col border-border bg-card">
         <div className="hairline-b border-border px-3 py-3">
-          <Wordmark className="mb-3 h-7" />
+          <Wordmark height={28} className="mb-3" />
           {/* Unmistakable: an operator must never confuse this with a
               customer's own console, because every action here is taken
               on someone else's account. */}

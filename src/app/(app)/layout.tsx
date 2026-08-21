@@ -3,7 +3,7 @@
 import { AuthGuard } from "@/components/auth-guard";
 import { Sidebar } from "@/components/shell/sidebar";
 import { useAccount, useBillingSummary, useInstances } from "@/lib/api/hooks";
-import { useActiveProject, useEnsureApiKey } from "@/lib/active-project";
+import { useActiveProject } from "@/lib/active-project";
 import { formatCost } from "@/lib/utils";
 
 /**
@@ -29,14 +29,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   const account = useAccount();
   const billing = useBillingSummary();
   const { project, projects, select } = useActiveProject();
-  const { ready } = useEnsureApiKey(project?.id);
-  // The sidebar's instance count needs the project API key too, so it
-  // waits rather than firing an unauthenticated request on every page.
-  const instances = useInstances(ready);
+  // Compute requests are scoped by X-Project-ID (see active-project.tsx),
+  // set the instant a project is selected — no credential to wait for.
+  const instances = useInstances(Boolean(project));
 
-  const running = instances.data?.instances.filter(
-    (i) => i.status === "running" || i.status === "pending",
-  ).length;
+  // Badge counts are RUNNING only (not pending/stopped) — the number next
+  // to a compute link answers "how much am I running right now", so a
+  // pending or terminated instance must not inflate it. Split by kind so
+  // the GPU badge never counts a CPU instance and vice versa.
+  const runningInstances = (instances.data?.instances ?? []).filter(
+    (i) => i.status === "running",
+  );
+  const isGpu = (t?: string) => (t ?? "").startsWith("gpu");
+  const gpuRunning = runningInstances.filter((i) => isGpu(i.instance_type))
+    .length;
+  const cpuRunning = runningInstances.filter((i) => !isGpu(i.instance_type))
+    .length;
 
   return (
     <div className="flex">
@@ -46,7 +54,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         projects={projects}
         activeProject={project}
         onSelectProject={select}
-        instanceCount={running}
+        gpuRunning={gpuRunning}
+        cpuRunning={cpuRunning}
         monthToDate={
           billing.data ? formatCost(billing.data.total_cost) : undefined
         }

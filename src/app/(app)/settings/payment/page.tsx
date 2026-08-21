@@ -6,6 +6,7 @@ import { PaymentIcon, type PaymentType } from "react-svg-credit-card-payment-ico
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/table";
 import {
   errorMessage,
@@ -76,9 +77,7 @@ export default function PaymentSettingsPage() {
           </CardHeader>
 
           {methods.isLoading ? (
-            <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-              Loading…
-            </div>
+            <Loading className="px-4 py-16" />
           ) : methods.isError ? (
             <EmptyState
               title="Could not load payment methods"
@@ -145,11 +144,16 @@ function PaymentMethodTile({
     >
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <PaymentIcon
-            type={brandToIcon(card.brand)}
-            format="flatRounded"
-            width={44}
-          />
+          <div className="flex items-center gap-2">
+            <PaymentIcon
+              type={brandToIcon(card.brand)}
+              format="flatRounded"
+              width={44}
+            />
+            <span className="text-foreground text-xs">
+              {brandLabel(card.brand)}
+            </span>
+          </div>
           {card.is_default && !pending && (
             <span className="hairline rounded border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
               Default
@@ -166,11 +170,6 @@ function PaymentMethodTile({
             <span className="text-muted-foreground text-xs">
               Expires {String(card.exp_month).padStart(2, "0")}/{card.exp_year}
             </span>
-          )}
-          {/* Fallback label only when the logo says nothing — a pending
-              card has no brand yet, so the Generic mark needs a word. */}
-          {!card.brand && (
-            <span className="text-muted-foreground text-xs">Card</span>
           )}
         </div>
       </div>
@@ -205,7 +204,7 @@ function PaymentMethodTile({
 }
 
 /** Compact brand + masked number + expiry, for the default-card summary
- *  line at the top. No redundant brand text — the logo carries it. */
+ *  line at the top. */
 function CardIdentity({ card }: { card: PaymentMethod }) {
   return (
     <div className="flex items-center gap-3">
@@ -215,6 +214,7 @@ function CardIdentity({ card }: { card: PaymentMethod }) {
         width={38}
       />
       <div className="flex items-baseline gap-2">
+        <span className="text-foreground text-sm">{brandLabel(card.brand)}</span>
         <span className="identifier text-foreground text-sm">
           •••• {card.last4 ?? "••••"}
         </span>
@@ -264,5 +264,30 @@ function brandToIcon(brand?: string): PaymentType {
       return "UnionPay";
     default:
       return "Generic";
+  }
+}
+
+/** Display text next to the brand mark — a pending card has no brand yet,
+ *  so this also covers that case with a plain "Card" label. */
+function brandLabel(brand?: string): string {
+  switch ((brand ?? "").toLowerCase()) {
+    case "visa":
+      return "Visa";
+    case "mastercard":
+      return "Mastercard";
+    case "amex":
+    case "american express":
+      return "American Express";
+    case "discover":
+      return "Discover";
+    case "diners":
+    case "diners club":
+      return "Diners Club";
+    case "jcb":
+      return "JCB";
+    case "unionpay":
+      return "UnionPay";
+    default:
+      return "Card";
   }
 }

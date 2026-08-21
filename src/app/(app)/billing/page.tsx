@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, Stat } from "@/components/ui/card";
 import { InvoiceStatusPill } from "@/components/ui/invoice-status";
+import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
   TBody,
@@ -200,9 +201,7 @@ function UsageTab({
       </CardHeader>
 
       {billing.isLoading ? (
-        <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-          Loading…
-        </div>
+        <Loading className="px-4 py-16" />
       ) : !data?.projects.length ? (
         <EmptyState
           title="No usage yet"
@@ -268,9 +267,7 @@ function InvoicesTab({
       </CardHeader>
 
       {invoices.isLoading ? (
-        <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-          Loading…
-        </div>
+        <Loading className="px-4 py-16" />
       ) : invoices.isError ? (
         <EmptyState
           title="Could not load invoices"

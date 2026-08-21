@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InvoiceStatusPill } from "@/components/ui/invoice-status";
+import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
   TBody,
@@ -45,7 +46,7 @@ export default function InvoiceDetailPage({
     return (
       <>
         <PageHeader breadcrumb={["Billing", "Invoices", "…"]} />
-        <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+        <Loading className="py-16" />
       </>
     );
   }

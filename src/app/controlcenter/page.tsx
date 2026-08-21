@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/ui/card";
+import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
   TBody,
@@ -33,9 +34,7 @@ export default function ControlCenterAccountsPage() {
       <div className="p-6">
         <Card>
           {accounts.isLoading ? (
-            <div className="text-muted-foreground px-4 py-10 text-center text-sm">
-              Loading…
-            </div>
+            <Loading className="px-4 py-16" />
           ) : accounts.isError ? (
             <EmptyState
               title="Could not load accounts"
