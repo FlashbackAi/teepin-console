@@ -5,6 +5,7 @@ import type {
   CreateInstanceRequest,
   CreatedAPIKey,
   APIKey,
+  ExecTicket,
   HomeCapacity,
   ImagePortsResponse,
   Instance,
@@ -23,6 +24,12 @@ import type {
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "https://api.teepin.com";
+
+/** The same origin as BASE_URL, as a WebSocket URL (http->ws,
+ *  https->wss) — used only by the terminal's attach socket. */
+export function wsBaseUrl(): string {
+  return BASE_URL.replace(/^http/, "ws");
+}
 
 /**
  * An error carrying the HTTP status, so callers can branch on it.
@@ -273,11 +280,26 @@ export const api = {
       projectScoped: true,
     }),
 
-  getInstanceLogs: (id: string, tail = 200) =>
+  getInstanceLogs: (id: string, tail = 200, timestamps = false) =>
     request<InstanceLogs>(
-      `/v1/compute/instances/${id}/logs?tail=${tail}`,
+      `/v1/compute/instances/${id}/logs?tail=${tail}${timestamps ? "&timestamps=true" : ""}`,
       { projectScoped: true },
     ),
+
+  /** Issues a short-lived, single-use ticket for the terminal's
+   *  WebSocket attach step. container/command are both optional — an
+   *  omitted command lets the agent probe for a shell (/bin/bash, then
+   *  /bin/sh); container is only meaningful for a pod with more than
+   *  one, which the platform does not create today. */
+  createExecSession: (
+    id: string,
+    body?: { container?: string; command?: string[] },
+  ) =>
+    request<ExecTicket>(`/v1/compute/instances/${id}/exec`, {
+      method: "POST",
+      body: body ?? {},
+      projectScoped: true,
+    }),
 
   /** Home CPU capacity: which tiers fit right now + free totals. Used by the
    *  create dialog to enable/disable home tiers. 404 when home compute is off. */

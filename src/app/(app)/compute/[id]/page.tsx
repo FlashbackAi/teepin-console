@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import { ExternalLink } from "lucide-react";
@@ -10,14 +11,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { StatusPill } from "@/components/ui/status";
+import { Tabs } from "@/components/ui/tabs";
 import { useActiveProject } from "@/lib/active-project";
 import {
   errorMessage,
   useDeleteInstance,
   useInstance,
-  useInstanceLogs,
 } from "@/lib/api/hooks";
 import { formatRate, fullTime } from "@/lib/utils";
+import { LogsCard } from "./logs-card";
+
+// xterm touches `window` at import time — ssr:false keeps this file out
+// of any server-rendered chunk entirely, not just deferred.
+const TerminalCard = dynamic(() => import("./terminal-card"), { ssr: false });
 
 export default function InstanceDetailPage({
   params,
@@ -32,6 +38,7 @@ export default function InstanceDetailPage({
   const instance = useInstance(id, ready);
   const remove = useDeleteInstance();
   const [confirming, setConfirming] = useState(false);
+  const [tab, setTab] = useState<"logs" | "terminal">("logs");
 
   const data = instance.data;
 
@@ -126,28 +133,80 @@ export default function InstanceDetailPage({
                 <Detail label="Memory">{data.memory}</Detail>
                 <Detail label="Created">{fullTime(data.created_at)}</Detail>
 
-                {data.endpoint && (
-                  <Detail label="Endpoint">
-                    <a
-                      href={data.endpoint}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground inline-flex items-center gap-1 hover:underline"
-                    >
-                      <span className="identifier">{data.endpoint}</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                    {data.tls_enabled && !data.tls_ready && (
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        certificate issuing…
-                      </span>
-                    )}
+                <Detail label="Endpoint">
+                  {(() => {
+                    // The backend now self-heals this (see
+                    // statusToInstance's derivation fallback), so
+                    // data.endpoint should already be populated for any
+                    // instance with a port — dns_name is a defensive
+                    // fallback for an edge case the backend fix doesn't
+                    // cover, not the primary path.
+                    const url = data.endpoint || (data.dns_name ? `https://${data.dns_name}` : "");
+                    if (!url) {
+                      return (
+                        <span className="text-muted-foreground">
+                          No public endpoint — no ports exposed
+                        </span>
+                      );
+                    }
+                    return (
+                      <>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground inline-flex items-center gap-1 hover:underline"
+                        >
+                          <span className="identifier">{url}</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        {data.tls_enabled && !data.tls_ready && (
+                          <span className="text-muted-foreground ml-2 text-xs">
+                            certificate issuing…
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </Detail>
+                {data.storage_gb ? (
+                  <Detail label="Storage">
+                    {data.storage_gb}GB persistent volume
                   </Detail>
-                )}
+                ) : null}
               </CardContent>
             </Card>
 
-            <LogsCard id={id} ready={ready} />
+            {/* Tabs carries its own px-6 for page-level use (see billing/
+                projects pages, where it sits directly under PageHeader
+                with no wrapping padding) — this instance is nested
+                inside the p-6 content column above, so -mx-6 cancels
+                that padding back out to keep the tab labels aligned
+                with the cards around them. */}
+            <div className="-mx-6">
+              <Tabs
+                tabs={[
+                  { id: "logs", label: "Logs" },
+                  { id: "terminal", label: "Terminal" },
+                ]}
+                active={tab}
+                onChange={(next) => setTab(next as "logs" | "terminal")}
+              />
+            </div>
+            {/* Both panels stay mounted always (CSS `hidden`, not a
+                ternary) so switching tabs no longer tears down the
+                terminal's live WebSocket or its scrollback — previously
+                a real bug: leaving the Terminal tab unmounted it,
+                closing the session, per terminal-card.tsx's own unmount
+                cleanup effect. `active` lets each panel pause its own
+                background work (log polling, resize fitting) while
+                hidden, without losing state. */}
+            <div className={tab === "logs" ? undefined : "hidden"}>
+              <LogsCard id={id} ready={ready} active={tab === "logs"} />
+            </div>
+            <div className={tab === "terminal" ? undefined : "hidden"}>
+              <TerminalCard id={id} active={tab === "terminal"} />
+            </div>
           </>
         )}
       </div>
@@ -212,25 +271,3 @@ function Detail({
   );
 }
 
-function LogsCard({ id, ready }: { id: string; ready: boolean }) {
-  const logs = useInstanceLogs(id, ready);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Logs</CardTitle>
-      </CardHeader>
-      {/* Monospace, dark-on-dark regardless of theme: logs are terminal
-          output and reading them anywhere else is harder, not easier. */}
-      <pre className="max-h-96 overflow-auto px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground font-mono">
-        {logs.isLoading
-          ? "Loading…"
-          : logs.isError
-            ? errorMessage(logs.error)
-            : logs.data?.logs?.trim()
-              ? logs.data.logs
-              : "No output yet."}
-      </pre>
-    </Card>
-  );
-}

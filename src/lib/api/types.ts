@@ -156,6 +156,9 @@ export interface Instance {
   tls_enabled?: boolean;
   tls_ready?: boolean;
   internal_ip?: string;
+  /** Persistent volume size in GB; 0/absent means no volume — the
+   *  instance stays ephemeral. */
+  storage_gb?: number;
   created_at: string;
   updated_at: string;
   labels?: Record<string, string>;
@@ -184,6 +187,10 @@ export interface CreateInstanceRequest {
   env?: Record<string, string>;
   ports?: { container: number }[];
   labels?: Record<string, string>;
+  /** Provisions a persistent volume mounted at /data, billed by GB-month.
+   *  Omit or 0 for an ephemeral instance. On a home node the volume is
+   *  node-local — it does not survive that node going offline. */
+  storage_gb?: number;
 }
 
 export interface InstanceType {
@@ -205,6 +212,15 @@ export interface InstanceLogs {
   instance_id: string;
   tail: number;
   logs: string;
+}
+
+/** A short-lived, single-use credential for the terminal WebSocket
+ *  attach step — see createExecSession in client.ts. */
+export interface ExecTicket {
+  ticket_id: string;
+  ticket_secret: string;
+  attach_path: string;
+  expires_in: number;
 }
 
 export interface ImagePort {
@@ -323,6 +339,9 @@ export interface Pricing {
   vram_price_per_gb_hour: number;
   cpu_price_per_core_hour: number;
   memory_price_per_gb_hour: number;
+  /** GB-MONTH rate, unlike every other field here (per-hour) — the
+   *  collector converts it internally. */
+  storage_price_per_gb_month: number;
   updated_by?: string;
   updated_at?: string;
 }

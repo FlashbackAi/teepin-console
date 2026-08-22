@@ -42,6 +42,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
   const [cpuUnits, setCpuUnits] = useState(2);
   const [memory, setMemory] = useState("8GB");
   const [command, setCommand] = useState("");
+  const [storageGB, setStorageGB] = useState("");
   // Manual port entry — only shown/used when auto-detection finds
   // nothing (see PortDetection in create-shared.tsx). The platform never
   // asks for a port it can already determine on its own.
@@ -80,6 +81,7 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
         command: parts.length > 0 ? [parts[0]] : undefined,
         args: parts.length > 1 ? parts.slice(1) : undefined,
         ports: containerPort ? [{ container: containerPort }] : undefined,
+        storage_gb: storageGB.trim() ? Number(storageGB) : undefined,
       },
       {
         onSuccess: (instance) => {
@@ -177,6 +179,22 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
             placeholder="sleep 3600"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
+          />
+        </Field>
+
+        <Field
+          label="Persistent storage"
+          hint="Optional. Mounted at /data. Leave blank for an ephemeral instance."
+          htmlFor="storage"
+        >
+          <Input
+            id="storage"
+            type="number"
+            min={1}
+            max={1000}
+            placeholder="GB"
+            value={storageGB}
+            onChange={(e) => setStorageGB(e.target.value)}
           />
         </Field>
 

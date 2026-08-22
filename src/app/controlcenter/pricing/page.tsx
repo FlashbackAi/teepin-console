@@ -28,12 +28,14 @@ export default function ControlCenterPricingPage() {
   const [rate, setRate] = useState("");
   const [cpuRate, setCpuRate] = useState("");
   const [memRate, setMemRate] = useState("");
+  const [storageRate, setStorageRate] = useState("");
 
   useEffect(() => {
     if (pricing.data) {
       setRate(String(pricing.data.vram_price_per_gb_hour));
       setCpuRate(String(pricing.data.cpu_price_per_core_hour ?? 0));
       setMemRate(String(pricing.data.memory_price_per_gb_hour ?? 0));
+      setStorageRate(String(pricing.data.storage_price_per_gb_month ?? 0));
     }
   }, [pricing.data]);
 
@@ -51,6 +53,11 @@ export default function ControlCenterPricingPage() {
     onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
   });
 
+  const updateStorage = useMutation({
+    mutationFn: () => admin.updateStoragePricing(Number(storageRate)),
+    onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
+  });
+
   const current = pricing.data?.vram_price_per_gb_hour;
   const dirty = rate !== "" && Number(rate) !== current;
   const cpuDirty =
@@ -58,6 +65,9 @@ export default function ControlCenterPricingPage() {
       Number(cpuRate) !== pricing.data?.cpu_price_per_core_hour) ||
     (memRate !== "" &&
       Number(memRate) !== pricing.data?.memory_price_per_gb_hour);
+  const storageDirty =
+    storageRate !== "" &&
+    Number(storageRate) !== pricing.data?.storage_price_per_gb_month;
 
   return (
     <>
@@ -183,6 +193,59 @@ export default function ControlCenterPricingPage() {
                   {updateCPU.isPending ? "Saving…" : "Update CPU rates"}
                 </Button>
                 {updateCPU.isSuccess && !cpuDirty && (
+                  <span className="text-muted-foreground text-xs">Saved.</span>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Persistent storage rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                updateStorage.mutate();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <Field
+                label="Price per GB-month (USD)"
+                hint="Billed on the same hourly tick as everything else, converted from the monthly rate. 0 = do not charge."
+                error={updateStorage.isError ? errorMessage(updateStorage.error) : undefined}
+                htmlFor="storage-rate"
+              >
+                <Input
+                  id="storage-rate"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={storageRate}
+                  onChange={(e) => setStorageRate(e.target.value)}
+                />
+              </Field>
+
+              <p className="text-muted-foreground text-xs">
+                Persistent volumes are metered continuously but bill nothing
+                until a non-zero rate is set. Applies to the next billing
+                tick; existing usage keeps its metered rate.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!storageDirty || updateStorage.isPending}
+                >
+                  {updateStorage.isPending ? "Saving…" : "Update storage rate"}
+                </Button>
+                {updateStorage.isSuccess && !storageDirty && (
                   <span className="text-muted-foreground text-xs">Saved.</span>
                 )}
               </div>

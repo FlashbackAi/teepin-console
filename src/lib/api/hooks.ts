@@ -248,12 +248,20 @@ export function useDeleteInstance() {
   });
 }
 
-export function useInstanceLogs(id: string, enabled = true, tail = 200) {
+export function useInstanceLogs(
+  id: string,
+  enabled = true,
+  tail = 200,
+  timestamps = false,
+) {
   return useQuery({
-    queryKey: ["logs", id, tail],
-    queryFn: () => api.getInstanceLogs(id, tail),
+    queryKey: ["logs", id, tail, timestamps],
+    queryFn: () => api.getInstanceLogs(id, tail, timestamps),
     enabled,
-    // Logs are a live view while the customer is looking at them.
+    // Logs are a live view while the customer is looking at them. React
+    // Query already skips fetching (and thus polling) entirely while
+    // `enabled` is false, so this stays a flat interval rather than
+    // duplicating that condition here.
     refetchInterval: 5_000,
   });
 }

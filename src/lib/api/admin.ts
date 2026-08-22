@@ -219,6 +219,12 @@ export const admin = {
   }) =>
     adminRequest<Pricing>("/v1/admin/pricing/cpu", { method: "PUT", body }),
 
+  updateStoragePricing: (storagePricePerGBMonth: number) =>
+    adminRequest<Pricing>("/v1/admin/pricing/storage", {
+      method: "PUT",
+      body: { storage_price_per_gb_month: storagePricePerGBMonth },
+    }),
+
   // --- Nodes (home-compute pilot) -----------------------------------------
   // These routes exist only when the control plane has HOME_COMPUTE_ENABLED;
   // otherwise they 404 and the Nodes page shows a "not enabled" state.

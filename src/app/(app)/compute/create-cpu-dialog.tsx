@@ -33,6 +33,7 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
   const [image, setImage] = useState("");
   const [tierId, setTierId] = useState("");
   const [command, setCommand] = useState("");
+  const [storageGB, setStorageGB] = useState("");
   // Manual port entry — only ever used/shown when auto-detection finds
   // nothing (see PortDetection). When the platform already knows the
   // port (the common case: nginx, postgres, redis, ...), the customer is
@@ -76,6 +77,7 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
         command: parts.length > 0 ? [parts[0]] : undefined,
         args: parts.length > 1 ? parts.slice(1) : undefined,
         ports: containerPort ? [{ container: containerPort }] : undefined,
+        storage_gb: storageGB.trim() ? Number(storageGB) : undefined,
       },
       {
         onSuccess: (instance) => {
@@ -176,6 +178,35 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
             onChange={(e) => setCommand(e.target.value)}
           />
         </Field>
+
+        <Field
+          label="Persistent storage"
+          hint="Optional. Mounted at /data. Leave blank for an ephemeral instance."
+          htmlFor="cpu-storage"
+        >
+          <Input
+            id="cpu-storage"
+            type="number"
+            min={1}
+            max={1000}
+            placeholder="GB"
+            value={storageGB}
+            onChange={(e) => setStorageGB(e.target.value)}
+          />
+        </Field>
+        {Number(storageGB) > 0 && (
+          // Home nodes are the only capacity that exists today, so this
+          // warning is not hypothetical — every volume created from this
+          // dialog IS node-local. Stated plainly rather than buried in
+          // docs: a customer discovering this by surprise when their node
+          // goes offline is the exact outcome to avoid.
+          <p className="text-warning text-xs">
+            This volume lives on the home node&apos;s own disk — it is
+            unreachable while that node is offline, and is not backed up.
+            This is a different durability guarantee than datacenter
+            storage.
+          </p>
+        )}
 
         {detection.status === "not-found" && (
           <Field
