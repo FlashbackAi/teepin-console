@@ -92,12 +92,14 @@ function GeneralTab({ project }: { project: Project }) {
   const [environment, setEnvironment] = useState<Environment | "">(
     project.environment ?? "",
   );
+  const [allowOnDemand, setAllowOnDemand] = useState(project.allow_on_demand);
   const [deleting, setDeleting] = useState(false);
 
   const dirty =
     name !== project.name ||
     description !== (project.description ?? "") ||
-    environment !== (project.environment ?? "");
+    environment !== (project.environment ?? "") ||
+    allowOnDemand !== project.allow_on_demand;
 
   const save = (event: React.FormEvent) => {
     event.preventDefault();
@@ -108,6 +110,9 @@ function GeneralTab({ project }: { project: Project }) {
       ...(name !== project.name ? { name } : {}),
       ...(description !== (project.description ?? "") ? { description } : {}),
       ...(environment !== (project.environment ?? "") ? { environment } : {}),
+      ...(allowOnDemand !== project.allow_on_demand
+        ? { allow_on_demand: allowOnDemand }
+        : {}),
     });
   };
 
@@ -167,6 +172,27 @@ function GeneralTab({ project }: { project: Project }) {
                   <option value="staging">Staging</option>
                   <option value="prod">Production</option>
                 </Select>
+              </Field>
+
+              <Field
+                label="On-demand capacity"
+                hint={
+                  allowOnDemand
+                    ? "This project can use on-demand (home-node) capacity. Turn it off to restrict this project to reserved (datacenter) capacity only."
+                    : "This project is restricted to reserved (datacenter) capacity. No reserved capacity exists yet on this platform — while off, CPU instance creation and Kumbha deploys for this project will be refused rather than silently falling back to on-demand capacity."
+                }
+                htmlFor="allow-on-demand"
+              >
+                <label className="flex w-fit cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    id="allow-on-demand"
+                    type="checkbox"
+                    className="accent-foreground h-4 w-4 align-middle"
+                    checked={allowOnDemand}
+                    onChange={(e) => setAllowOnDemand(e.target.checked)}
+                  />
+                  Allow on-demand (home-node) capacity
+                </label>
               </Field>
 
               <div className="flex items-center gap-3">

@@ -90,6 +90,14 @@ export interface Project {
   description: string;
   /** Empty when the customer has not declared one. */
   environment?: Environment | "";
+  /**
+   * Whether this project's workloads may use on-demand (home-node)
+   * capacity, as opposed to reserved (datacenter) capacity only. Today
+   * every CPU instance IS home compute (see create-cpu-dialog.tsx), so
+   * turning this off blocks CPU instance creation and Kumbha deploys
+   * entirely until reserved capacity exists.
+   */
+  allow_on_demand: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +107,7 @@ export interface UpdateProjectRequest {
   name?: string;
   description?: string;
   environment?: Environment | "";
+  allow_on_demand?: boolean;
 }
 
 export interface APIKey {
@@ -212,6 +221,26 @@ export interface InstanceLogs {
   instance_id: string;
   tail: number;
   logs: string;
+}
+
+/** One compute.instance_metrics row — a single utilization reading. What
+ *  GET /v1/compute/instances/:id/metrics returns, oldest first.
+ *  cpu_used_percent is relative to the instance's OWN allocation
+ *  (cpu_units), not host capacity — "am I using what I'm paying for".
+ *  storage_used_gb is a SNAPSHOT of ephemeral storage usage, not a
+ *  throughput rate (there is no per-pod disk I/O rate source yet). */
+export interface InstanceMetricSample {
+  recorded_at: string;
+  cpu_used_percent: number;
+  memory_used_gb: number;
+  network_rx_mbps: number;
+  network_tx_mbps: number;
+  storage_used_gb: number;
+}
+
+export interface InstanceMetrics {
+  instance_id: string;
+  samples: InstanceMetricSample[];
 }
 
 /** A short-lived, single-use credential for the terminal WebSocket
@@ -342,6 +371,11 @@ export interface Pricing {
   /** GB-MONTH rate, unlike every other field here (per-hour) — the
    *  collector converts it internally. */
   storage_price_per_gb_month: number;
+  /** Kumbha Gateway rates, per MILLION tokens — priced separately for
+   *  input/output since the two cost very differently on every backend
+   *  the gateway routes to. */
+  llm_price_per_million_input: number;
+  llm_price_per_million_output: number;
   updated_by?: string;
   updated_at?: string;
 }
@@ -380,6 +414,23 @@ export interface Node {
   k8s_ready: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** One compute.node_metrics row — a single utilization reading. What
+ *  GET /v1/admin/nodes/:id/metrics returns, oldest first. All fields are
+ *  point-in-time CURRENT USE, not the static capacity already on `Node`
+ *  (cpu_cores/memory_gb) — a zero reading is indistinguishable from
+ *  "genuinely idle"; key off recorded_at to tell "no data yet" apart from
+ *  that. gpu_used_vram_gb is 0 for a CPU-only home node's samples. */
+export interface NodeMetricSample {
+  recorded_at: string;
+  cpu_used_percent: number;
+  memory_used_gb: number;
+  gpu_used_vram_gb: number;
+  network_rx_mbps: number;
+  network_tx_mbps: number;
+  storage_read_mbps: number;
+  storage_write_mbps: number;
 }
 
 /** Per-node capacity breakdown (control centre). Used is derived from running
@@ -462,4 +513,270 @@ export interface CreditTransaction {
   granted_by?: string;
   expires_at?: string;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------
+// Kumbha — the autonomous build service
+//
+// Kumbha itself has no console page of its own (KUMBHA-DESIGN.md): what
+// lives under /build is the agent-flow UI, and every teepin.* call the
+// agent makes is the SAME real customer-facing API a human uses from
+// elsewhere in this console (compute, billing) — see the CloudFormation
+// parallel in the design doc. Nothing here is a "Kumbha resource"; it's
+// ordinary account resources, created on the customer's behalf.
+// ---------------------------------------------------------------------
+
+/**
+ * A build session's lifecycle.
+ *
+ * `open` is the only state a build is actually running in. The other
+ * three are all terminal — the split exists (rather than one generic
+ * "closed") so the console can say WHY a build stopped: the customer
+ * closed it, it ran out of pre-approved budget, or it sat idle too long.
+ */
+export type KumbhaSessionStatus =
+  | "open"
+  | "closed"
+  | "budget_exhausted"
+  | "idle_timeout";
+
+export interface KumbhaSession {
+  id: string;
+  /** Dollars pre-authorised for this session's own reasoning (the agent's
+   *  token spend) — NOT the cost of any infrastructure it creates, which
+   *  bills separately through the ordinary compute/storage dimensions
+   *  once the customer approves the deployment plan. */
+  budget: number;
+  spent: number;
+  status: KumbhaSessionStatus;
+  label: string;
+  /** The pre-deploy cost-approval gate (KUMBHA-DESIGN.md) — until this is
+   *  true, the agent's create_instance/deploy/attach_domain tools are
+   *  hard-blocked server-side, not just prompted to wait. */
+  deploy_approved: boolean;
+  /** Whether the agent pod is currently running. The pod itself (Kumbha's
+   *  own workload, not a resource the customer manages — see
+   *  pkg/kumbha/agent.go) is deliberately never exposed by ID here. On
+   *  GetKumbhaSession AND ListKumbhaSessions (both share
+   *  enrichKumbhaAgentRunning — cheap enough, an in-memory cache lookup
+   *  in this platform's actual topology, to run on every row) this is a
+   *  LIVE cluster read; on create it is the cheaper "was a pod ever
+   *  launched" proxy — see the backend's own kumbhaSessionResponse
+   *  comment for why that split exists. Found live 2026-08-29: the cheap
+   *  proxy alone left the "Previous builds" list showing an animated
+   *  "Building" status for a session whose agent had long since
+   *  finished. */
+  agent_running: boolean;
+  /** The real compute instance this session's deploy(s) produced — a
+   *  normal, customer-manageable instance (/compute/{id}), unlike the
+   *  agent pod. Empty until the first successful deploy; unchanged by
+   *  every deploy after that (a redeploy swaps this instance's own pod
+   *  in place rather than creating a new one). */
+  app_instance_id: string;
+  /** The deployed app's own live status — compute's own InstanceStatus
+   *  vocabulary (see status.tsx's StatusPill, reused as-is for this), so
+   *  the console never invents a second status taxonomy for the same
+   *  underlying pod. Present ONLY on GetKumbhaSession (see
+   *  enrichKumbhaAppStatus's own doc comment on why ListKumbhaSessions
+   *  deliberately does not pay this one's live-read cost per row), and
+   *  only once app_instance_id is set. This is what actually answers
+   *  "did the last deploy work" — agent_running alone cannot, since the
+   *  agent can finish while the app it deployed is crash-looping. */
+  app_status?: InstanceStatus;
+  app_status_message?: string;
+  /** The deployed app's live URL, straight from the same cluster read as
+   *  app_status — the authoritative source for the Preview tab and the
+   *  "open instance" link, since it works whether the last deploy was
+   *  the agent's own `deploy` call or the console IDE's Deploy button,
+   *  and survives a page reload unlike an event-parsed URL. GetKumbhaSession
+   *  only, same as app_status. */
+  app_endpoint?: string;
+  /** Whether the session's MOST RECENT build/deploy attempt failed — a
+   *  stored column (see migration 030), not a live read, so it is cheap
+   *  enough for the "Previous builds" list too, unlike app_status. Can be
+   *  true while app_instance_id still names a perfectly healthy,
+   *  currently-running instance: the latest attempt failing does not
+   *  touch whatever an earlier successful deploy already has running —
+   *  this only means "your last action here didn't work", not "nothing
+   *  is running". Cleared (false) the next time a build/deploy succeeds. */
+  last_deploy_failed: boolean;
+  last_deploy_error: string;
+  started_at: string;
+  ended_at?: string | null;
+}
+
+/**
+ * One compute instance a Kumbha session has created — via deploy's own
+ * bookkeeping (app_instance_id) or a raw create_instance call, which
+ * historically left no trace on the session at all (found live
+ * 2026-08-30/31: an agent working around a broken `deploy` endpoint fell
+ * back to create_instance twice, producing one broken and one working
+ * instance, NEITHER visible anywhere until the customer noticed the
+ * extra bill). is_app marks the one instance the session's own
+ * app_instance_id names — everything else is a byproduct (a failed
+ * attempt, a sidecar) worth surfacing so it can be deleted rather than
+ * silently billing forever. Status/endpoint are the last value the
+ * reconciler stored, not a live read — same staleness bound as the
+ * plain Compute page between reconciler ticks. */
+export interface KumbhaSessionInstance {
+  id: string;
+  name: string;
+  image: string;
+  status: InstanceStatus;
+  endpoint: string;
+  is_app: boolean;
+  created_at: string;
+  terminated_at?: string | null;
+}
+
+/**
+ * One line from the agent's own activity — what the console's live
+ * feed renders. This is the ENTIRE customer-visible surface of what the
+ * agent is doing; which model or provider served any given step is
+ * structurally never present here (see pkg/kumbha/events.go's
+ * allowlist-based sanitisation — not a client-side convention, a
+ * server-enforced one).
+ *
+ * - `action`: the agent is doing something (running a command, editing a
+ *   file, calling a teepin.* tool).
+ * - `observation`: the result of the most recent action.
+ * - `message`: the agent talking to the customer directly.
+ * - `error`: something in the agent's own run failed.
+ * - `idle`: the agent has nothing more to do right now and is waiting for
+ *   the next instruction — a deliberate, distinct terminal marker, not
+ *   silence the customer has to interpret themselves.
+ */
+export type KumbhaEventType =
+  | "action"
+  | "observation"
+  | "message"
+  | "error"
+  | "idle";
+
+export interface KumbhaEvent {
+  type: KumbhaEventType;
+  /** The tool/command name, for action/observation events — e.g.
+   *  "TerminalTool", "create_instance", "present_deployment_plan". */
+  tool?: string;
+  /** Human-readable text — for present_deployment_plan specifically, this
+   *  is raw JSON (a DeploymentPlan) rather than prose; see
+   *  parseDeploymentPlan below. */
+  summary?: string;
+  /** Unix timestamp in seconds (Python's time.time()), not milliseconds —
+   *  multiply by 1000 before handing to `Date`. */
+  ts: number;
+}
+
+export interface DeploymentPlanResource {
+  name: string;
+  cpu_units: number;
+  memory_gb: number;
+  storage_gb: number;
+  cost_per_hour: number;
+  cost_per_month: number;
+}
+
+/** The itemised infrastructure estimate the customer approves before any
+ *  real resource is created — see the "Pre-deploy cost approval" gate.
+ *  Arrives as an `observation` event's `summary` field (JSON text, not
+ *  prose) from the present_deployment_plan tool. */
+export interface DeploymentPlan {
+  resources: DeploymentPlanResource[];
+  total_cost_per_hour: number;
+  total_cost_per_month: number;
+}
+
+/** Attempts to read an observation event's summary as a DeploymentPlan.
+ *  Returns null for anything else (an ordinary text summary, malformed
+ *  JSON) rather than throwing — most observations are plain prose, and
+ *  that is the expected, common case here, not an error. */
+export function parseDeploymentPlan(event: KumbhaEvent): DeploymentPlan | null {
+  if (event.type !== "observation" || event.tool !== "present_deployment_plan") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(event.summary ?? "");
+    if (Array.isArray(parsed?.resources)) return parsed as DeploymentPlan;
+  } catch {
+    /* not JSON — not a deployment plan */
+  }
+  return null;
+}
+
+/**
+ * One file in a session's workspace — what the agent's file_editor tool
+ * wrote, uploaded automatically (see run.py's upload_workspace), or what
+ * the customer edited directly in the console IDE and saved.
+ */
+export interface KumbhaWorkspaceFile {
+  path: string;
+  content: string;
+}
+
+/** A file the agent deliberately did not upload (binary, too large) —
+ *  surfaced so the file tree can say what's missing rather than silently
+ *  omitting it. */
+export interface KumbhaSkippedFile {
+  path: string;
+  reason: string;
+}
+
+/** Who produced a workspace version — an automatic agent save after a
+ *  file_editor call, or an explicit customer edit-and-save in the IDE.
+ *  Shown in the history list, since the two read very differently when
+ *  picking a rollback target. */
+export type KumbhaWorkspaceCreatedBy = "agent" | "customer";
+
+/**
+ * One version's full content — what the file browser and ZIP download
+ * read. Versioned, not overwrite-in-place: every save (agent or
+ * customer) is a new version, and `current_workspace_version` on the
+ * session says which one is live. See migration 025 and
+ * pkg/kumbha/workspace.go for the storage shape this mirrors.
+ */
+export interface KumbhaWorkspace {
+  version: number;
+  files: KumbhaWorkspaceFile[];
+  skipped: KumbhaSkippedFile[];
+  file_count: number;
+  byte_size: number;
+  created_by: KumbhaWorkspaceCreatedBy;
+  created_at: string;
+  /** True when this version is worth showing in the "Version history"
+   *  list — true once a deploy has checkpointed it, OR immediately for a
+   *  customer's own edit-and-save (so it shows up right away, without
+   *  waiting for a redeploy). Does NOT mean this content is currently
+   *  running — see is_deployed below. Conflating the two broke live
+   *  2026-08-31: a customer edited and saved, and the Deploy button
+   *  immediately disabled itself with "Already deployed" for a version
+   *  that had never been deployed. */
+  is_checkpoint: boolean;
+  /** True when THIS version is byte-for-byte what the last successful
+   *  deploy actually built and ran. This, not is_checkpoint, is what the
+   *  code panel's Deploy button reads to disable itself — rebuilding and
+   *  redeploying something that isn't actually different is the no-op
+   *  this guards against. */
+  is_deployed: boolean;
+}
+
+/**
+ * One entry in a session's version history — metadata only, no file
+ * content, so listing history stays cheap regardless of version size.
+ * `current` marks the version the session's pointer is on right now —
+ * the one a rollback would be a no-op on.
+ */
+export interface KumbhaWorkspaceVersionInfo {
+  version: number;
+  file_count: number;
+  byte_size: number;
+  created_by: KumbhaWorkspaceCreatedBy;
+  created_at: string;
+  current: boolean;
+  /** True when THIS version is what the last successful deploy actually
+   *  built and ran — not the same as created_by === "agent" (found live
+   *  2026-08-31: the history dialog used to label every agent row
+   *  "Deployed" and every customer row "You", but a customer's saved,
+   *  never-deployed edit had no way to be told apart from one that was
+   *  later deployed). */
+  is_deployed: boolean;
 }

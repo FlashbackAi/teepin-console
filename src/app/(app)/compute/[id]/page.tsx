@@ -18,8 +18,9 @@ import {
   useDeleteInstance,
   useInstance,
 } from "@/lib/api/hooks";
-import { formatRate, fullTime } from "@/lib/utils";
+import { formatImageForDisplay, formatRate, fullTime } from "@/lib/utils";
 import { LogsCard } from "./logs-card";
+import { MetricsCard } from "./metrics-card";
 
 // xterm touches `window` at import time — ssr:false keeps this file out
 // of any server-rendered chunk entirely, not just deferred.
@@ -38,7 +39,7 @@ export default function InstanceDetailPage({
   const instance = useInstance(id, ready);
   const remove = useDeleteInstance();
   const [confirming, setConfirming] = useState(false);
-  const [tab, setTab] = useState<"logs" | "terminal">("logs");
+  const [tab, setTab] = useState<"metrics" | "logs" | "terminal">("logs");
 
   const data = instance.data;
 
@@ -117,7 +118,9 @@ export default function InstanceDetailPage({
                 </Detail>
                 <Detail label="Type">{data.instance_type ?? "—"}</Detail>
                 <Detail label="Image">
-                  <span className="identifier break-all">{data.image}</span>
+                  <span className="identifier break-all" title={data.image}>
+                    {formatImageForDisplay(data.image)}
+                  </span>
                 </Detail>
                 <Detail label="GPU memory">
                   {data.allocated_vram ?? "—"}
@@ -186,21 +189,27 @@ export default function InstanceDetailPage({
             <div className="-mx-6">
               <Tabs
                 tabs={[
+                  { id: "metrics", label: "Metrics" },
                   { id: "logs", label: "Logs" },
                   { id: "terminal", label: "Terminal" },
                 ]}
                 active={tab}
-                onChange={(next) => setTab(next as "logs" | "terminal")}
+                onChange={(next) =>
+                  setTab(next as "metrics" | "logs" | "terminal")
+                }
               />
             </div>
-            {/* Both panels stay mounted always (CSS `hidden`, not a
+            {/* All three panels stay mounted always (CSS `hidden`, not a
                 ternary) so switching tabs no longer tears down the
                 terminal's live WebSocket or its scrollback — previously
                 a real bug: leaving the Terminal tab unmounted it,
                 closing the session, per terminal-card.tsx's own unmount
                 cleanup effect. `active` lets each panel pause its own
-                background work (log polling, resize fitting) while
-                hidden, without losing state. */}
+                background work (log polling, resize fitting, metrics
+                polling) while hidden, without losing state. */}
+            <div className={tab === "metrics" ? undefined : "hidden"}>
+              <MetricsCard id={id} active={tab === "metrics"} />
+            </div>
             <div className={tab === "logs" ? undefined : "hidden"}>
               <LogsCard id={id} ready={ready} active={tab === "logs"} />
             </div>

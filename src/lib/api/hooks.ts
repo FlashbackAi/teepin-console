@@ -11,9 +11,24 @@ import type {
   ConvertToOrganizationRequest,
   CreateInstanceRequest,
   Instance,
+  KumbhaSkippedFile,
+  KumbhaWorkspaceFile,
   UpdateAccountRequest,
   UpdateProjectRequest,
 } from "./types";
+
+// Deliberately not re-exported through `keys` below: a Kumbha session's
+// query key is parameterised by id the same way `keys.instance(id)` is,
+// but nothing outside this file's own Kumbha hooks needs to invalidate it
+// by name, so it stays local rather than growing the shared namespace for
+// no caller.
+function kumbhaSessionKey(id: string) {
+  return ["kumbha-session", id] as const;
+}
+
+function kumbhaSessionInstancesKey(id: string) {
+  return ["kumbha-session-instances", id] as const;
+}
 
 /**
  * React Query hooks over the API client.
@@ -30,12 +45,14 @@ export const keys = {
   apiKeys: (projectId: string) => ["api-keys", projectId] as const,
   instances: ["instances"] as const,
   instance: (id: string) => ["instance", id] as const,
+  instanceMetrics: (id: string, since: string) => ["instance-metrics", id, since] as const,
   instanceTypes: ["instance-types"] as const,
   billing: ["billing"] as const,
   invoices: ["invoices"] as const,
   invoice: (id: string) => ["invoice", id] as const,
   paymentMethods: ["payment-methods"] as const,
   creditBalance: ["credit-balance"] as const,
+  kumbhaSessions: ["kumbha-sessions"] as const,
 };
 
 // ---------------------------------------------------------------------
@@ -181,6 +198,15 @@ export function useInstance(id: string, enabled = true) {
     enabled,
     refetchInterval: (query) =>
       query.state.data?.status === "pending" ? 3_000 : false,
+  });
+}
+
+export function useInstanceMetrics(id: string, since: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.instanceMetrics(id, since),
+    queryFn: () => api.getInstanceMetrics(id, since),
+    enabled,
+    refetchInterval: 30_000, // matches the agent's own ~30s report cadence
   });
 }
 
@@ -378,6 +404,212 @@ export function useRegister() {
       email: string;
       password: string;
     }) => api.register(body),
+  });
+}
+
+// ---------------------------------------------------------------------
+// Kumbha
+// ---------------------------------------------------------------------
+
+/** Pre-authorises a session and (when a prompt is given) starts the agent
+ *  in the same call — see api.createKumbhaSession. */
+export function useCreateKumbhaSession() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { budget: number; label?: string; prompt?: string }) =>
+      api.createKumbhaSession(body),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
+  });
+}
+
+/** The active project's Kumbha build history, most recent first — the
+ *  Kumbha tab's landing view once any session exists. Read-only: for
+ *  finding and revisiting a past build, not resuming its conversation. */
+export function useKumbhaSessions(enabled = true) {
+  return useQuery({
+    queryKey: keys.kumbhaSessions,
+    queryFn: api.listKumbhaSessions,
+    enabled,
+  });
+}
+
+/** Bulk-removes sessions from the "Previous builds" list — see
+ *  api.deleteKumbhaSessions for the best-effort (not all-or-nothing)
+ *  contract. */
+export function useDeleteKumbhaSessions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.deleteKumbhaSessions(ids),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
+  });
+}
+
+/** Polls while a session is open — spend and deploy_approved both change
+ *  on their own as the agent works, and the customer watching the build
+ *  page expects the budget meter and plan modal to keep up without a
+ *  manual refresh. Stops the instant the session reaches any terminal
+ *  status, the same "settle then stop" shape as useInstances. */
+export function useKumbhaSession(id: string, enabled = true) {
+  return useQuery({
+    queryKey: kumbhaSessionKey(id),
+    queryFn: () => api.getKumbhaSession(id),
+    enabled: enabled && Boolean(id),
+    refetchInterval: (query) =>
+      query.state.data?.status === "open" ? 3_000 : false,
+  });
+}
+
+/** Every instance this session has created, deploy-tracked or not — see
+ *  api.listKumbhaSessionInstances and KumbhaSessionInstance's own doc
+ *  comment for the incident this exists to make visible. Polled at the
+ *  same cadence as the session itself while open: a deploy in progress
+ *  can add a new row (a create_instance fallback, a redeploy) that the
+ *  customer should see without a manual refresh. */
+export function useKumbhaSessionInstances(id: string, enabled = true) {
+  return useQuery({
+    queryKey: kumbhaSessionInstancesKey(id),
+    queryFn: () => api.listKumbhaSessionInstances(id),
+    enabled: enabled && Boolean(id),
+    refetchInterval: 3_000,
+  });
+}
+
+export function useApproveKumbhaDeploy(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.approveKumbhaDeploy(id),
+    onSuccess: (session) => client.setQueryData(kumbhaSessionKey(id), session),
+  });
+}
+
+/** The live budget meter's "raise budget" control — see client.ts's
+ *  updateKumbhaBudget doc comment. */
+export function useIncreaseKumbhaBudget(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (budget: number) => api.updateKumbhaBudget(id, budget),
+    onSuccess: (session) => client.setQueryData(kumbhaSessionKey(id), session),
+  });
+}
+
+/** The console's chat input — "chat + resume". See client.ts's
+ *  sendKumbhaMessage doc comment for what `relaunched` in the result
+ *  means. Does not invalidate the session query itself: the event stream
+ *  (a separate WebSocket, not react-query) is what shows the agent
+ *  actually acting on it. */
+export function useSendKumbhaMessage(id: string) {
+  return useMutation({
+    mutationFn: (content: string) => api.sendKumbhaMessage(id, content),
+  });
+}
+
+/** Stop's own response is just {stopped: true}, not a full session — the
+ *  session poll (budget-meter.tsx's 3s interval) picks up agent_running
+ *  flipping false on its own next tick, so this only needs to invalidate
+ *  rather than write a value in directly. */
+export function useStopKumbhaAgent(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.stopKumbhaAgent(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: kumbhaSessionKey(id) }),
+  });
+}
+
+/** A cheap "does this build" check, separate from a full deploy — see
+ *  client.ts's buildKumbhaSession doc comment. */
+export function useBuildKumbhaSession(id: string) {
+  return useMutation({
+    mutationFn: (dockerfilePath?: string) =>
+      api.buildKumbhaSession(id, dockerfilePath),
+  });
+}
+
+/** The IDE's Deploy button — builds the current workspace version and
+ *  creates a real running instance from it. See client.ts's
+ *  deployKumbhaSession doc comment for why each call produces a fresh
+ *  instance rather than updating one in place. */
+export function useDeployKumbhaSession(id: string) {
+  return useMutation({
+    mutationFn: (opts?: Parameters<typeof api.deployKumbhaSession>[1]) =>
+      api.deployKumbhaSession(id, opts),
+  });
+}
+
+// -------------------------------------------------------------------
+// Kumbha workspace — the console IDE. Versioned: every save (agent or
+// customer) is a new version, so the file tree/editor always reads the
+// CURRENT one unless a specific version is being previewed from history.
+// -------------------------------------------------------------------
+
+function kumbhaWorkspaceKey(id: string, version?: number) {
+  return ["kumbha-workspace", id, version ?? "current"] as const;
+}
+
+function kumbhaWorkspaceVersionsKey(id: string) {
+  return ["kumbha-workspace-versions", id] as const;
+}
+
+/** The IDE's file tree/editor content. Polls while the session is open —
+ *  the agent saves a new version after every file_editor call, and the
+ *  customer watching the build page expects the tree to keep up without
+ *  a manual refresh — same "poll while open" shape as useKumbhaSession.
+ *  Pass `version` to pin to a specific history entry instead (no polling
+ *  then: an old version's content never changes). */
+export function useKumbhaWorkspace(
+  id: string,
+  sessionStatus: string | undefined,
+  version?: number,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: kumbhaWorkspaceKey(id, version),
+    queryFn: () => api.getKumbhaWorkspace(id, version),
+    enabled: enabled && Boolean(id),
+    refetchInterval: version === undefined && sessionStatus === "open" ? 4_000 : false,
+    // A build that hasn't saved anything yet is not an error — the empty
+    // tree state renders from `isError` staying false with `data`
+    // undefined only on the FIRST load; a 404 here specifically means "no
+    // version yet", not "something is broken", so this must not retry.
+    retry: false,
+  });
+}
+
+/** Every version's metadata, newest first — the history list a rollback
+ *  target is picked from. */
+export function useKumbhaWorkspaceVersions(id: string, enabled = true) {
+  return useQuery({
+    queryKey: kumbhaWorkspaceVersionsKey(id),
+    queryFn: () => api.listKumbhaWorkspaceVersions(id),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+/** The IDE's Save button. */
+export function useSaveKumbhaWorkspace(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      files: KumbhaWorkspaceFile[];
+      skipped?: KumbhaSkippedFile[];
+    }) => api.saveKumbhaWorkspace(id, vars.files, vars.skipped),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: kumbhaWorkspaceKey(id) });
+      void client.invalidateQueries({ queryKey: kumbhaWorkspaceVersionsKey(id) });
+    },
+  });
+}
+
+/** Rolls the session's current-version pointer back (or forward) to an
+ *  existing version — never deletes anything, so this is itself
+ *  reversible by rolling forward again. */
+export function useRollbackKumbhaWorkspace(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (version: number) => api.rollbackKumbhaWorkspace(id, version),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: kumbhaWorkspaceKey(id) });
+      void client.invalidateQueries({ queryKey: kumbhaWorkspaceVersionsKey(id) });
+    },
   });
 }
 

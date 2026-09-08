@@ -29,6 +29,8 @@ export default function ControlCenterPricingPage() {
   const [cpuRate, setCpuRate] = useState("");
   const [memRate, setMemRate] = useState("");
   const [storageRate, setStorageRate] = useState("");
+  const [llmInRate, setLlmInRate] = useState("");
+  const [llmOutRate, setLlmOutRate] = useState("");
 
   useEffect(() => {
     if (pricing.data) {
@@ -36,6 +38,8 @@ export default function ControlCenterPricingPage() {
       setCpuRate(String(pricing.data.cpu_price_per_core_hour ?? 0));
       setMemRate(String(pricing.data.memory_price_per_gb_hour ?? 0));
       setStorageRate(String(pricing.data.storage_price_per_gb_month ?? 0));
+      setLlmInRate(String(pricing.data.llm_price_per_million_input ?? 0));
+      setLlmOutRate(String(pricing.data.llm_price_per_million_output ?? 0));
     }
   }, [pricing.data]);
 
@@ -58,6 +62,15 @@ export default function ControlCenterPricingPage() {
     onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
   });
 
+  const updateLLM = useMutation({
+    mutationFn: () =>
+      admin.updateLLMPricing({
+        llm_price_per_million_input: Number(llmInRate),
+        llm_price_per_million_output: Number(llmOutRate),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
+  });
+
   const current = pricing.data?.vram_price_per_gb_hour;
   const dirty = rate !== "" && Number(rate) !== current;
   const cpuDirty =
@@ -68,6 +81,11 @@ export default function ControlCenterPricingPage() {
   const storageDirty =
     storageRate !== "" &&
     Number(storageRate) !== pricing.data?.storage_price_per_gb_month;
+  const llmDirty =
+    (llmInRate !== "" &&
+      Number(llmInRate) !== pricing.data?.llm_price_per_million_input) ||
+    (llmOutRate !== "" &&
+      Number(llmOutRate) !== pricing.data?.llm_price_per_million_output);
 
   return (
     <>
@@ -246,6 +264,80 @@ export default function ControlCenterPricingPage() {
                   {updateStorage.isPending ? "Saving…" : "Update storage rate"}
                 </Button>
                 {updateStorage.isSuccess && !storageDirty && (
+                  <span className="text-muted-foreground text-xs">Saved.</span>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Kumbha (AI build agent) rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                updateLLM.mutate();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <Field
+                label="Price per million input tokens (USD)"
+                hint="0 = do not charge."
+                htmlFor="llm-in-rate"
+              >
+                <Input
+                  id="llm-in-rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={llmInRate}
+                  onChange={(e) => setLlmInRate(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Price per million output tokens (USD)"
+                hint="0 = do not charge."
+                error={updateLLM.isError ? errorMessage(updateLLM.error) : undefined}
+                htmlFor="llm-out-rate"
+              >
+                <Input
+                  id="llm-out-rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={llmOutRate}
+                  onChange={(e) => setLlmOutRate(e.target.value)}
+                />
+              </Field>
+
+              {/* This is the one rate a customer directly watches move in
+                  real time (the build page's own budget meter), so the
+                  "does this rewrite history" note matters here as much as
+                  anywhere else on this page. */}
+              <p className="text-muted-foreground text-xs">
+                Every Kumbha build session is metered but bills nothing
+                until non-zero rates are set here. Applies to the next
+                completion; usage already accrued keeps the rate it was
+                metered at.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!llmDirty || updateLLM.isPending}
+                >
+                  {updateLLM.isPending ? "Saving…" : "Update Kumbha rates"}
+                </Button>
+                {updateLLM.isSuccess && !llmDirty && (
                   <span className="text-muted-foreground text-xs">Saved.</span>
                 )}
               </div>

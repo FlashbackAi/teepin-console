@@ -25,7 +25,7 @@ import {
   useCreditBalance,
   useInvoices,
 } from "@/lib/api/hooks";
-import { formatCost, fullTime, triggerDownload } from "@/lib/utils";
+import { formatCost, formatQuantity, fullTime, triggerDownload } from "@/lib/utils";
 
 /**
  * Billing.
@@ -230,10 +230,25 @@ function UsageTab({
                 </THead>
                 <TBody>
                   {project.services.map((service) => (
-                    <TR key={service.service}>
+                    // Keyed by service+unit, not service alone: the
+                    // backend groups usage by (project, service label,
+                    // unit) — pkg/billing.GetAccountSummary's own SQL —
+                    // and any resource_type the label mapping doesn't
+                    // recognize falls back to the SAME "Other" label
+                    // regardless of unit. Two such rows for one project
+                    // (e.g. "Other"/hours and "Other"/tokens) previously
+                    // collided on this key and crashed the page (found
+                    // live 2026-08-30). Keying on the same granularity
+                    // the backend actually groups by is what makes this
+                    // safe for any future unrecognized resource_type,
+                    // not just the ones fixed today.
+                    <TR key={`${service.service}-${service.unit}`}>
                       <TD>{service.service}</TD>
-                      <TD className="tabular text-muted-foreground text-right">
-                        {service.quantity.toFixed(4)} {service.unit}
+                      <TD
+                        className="tabular text-muted-foreground text-right"
+                        title={`${service.quantity.toFixed(4)} ${service.unit}`}
+                      >
+                        {formatQuantity(service.quantity, service.unit)} {service.unit}
                       </TD>
                       <TD className="tabular text-muted-foreground text-right">
                         {service.instances}

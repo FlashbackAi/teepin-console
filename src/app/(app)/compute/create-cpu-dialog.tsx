@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
+import { useActiveProject } from "@/lib/active-project";
 import {
   errorMessage,
   useCanProvision,
@@ -28,6 +29,13 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
   const homeCap = useHomeCapacity();
   const create = useCreateInstance();
   const canProvision = useCanProvision();
+  const { project } = useActiveProject();
+  // Every CPU instance today IS home compute — there is no separate
+  // reserved-CPU path (see node_class: "home" below), so turning this
+  // off for a project blocks CPU instance creation entirely until
+  // reserved capacity exists. Checked client-side to warn up front;
+  // CreateInstance enforces it server-side regardless.
+  const onDemandDisabled = project?.allow_on_demand === false;
 
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
@@ -109,6 +117,7 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
             disabled={
               create.isPending ||
               canProvision === false ||
+              onDemandDisabled ||
               noCapacity ||
               nothingFits ||
               !selected?.fits ||
@@ -130,6 +139,16 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
         className="flex flex-col gap-4"
       >
         {canProvision === false && <PaymentGateNotice onClose={onClose} />}
+
+        {onDemandDisabled && (
+          <p className="text-warning text-xs">
+            On-demand (home-node) capacity is turned off for this project,
+            and no reserved capacity is available yet — CPU instances
+            cannot be created here. Enable on-demand capacity in{" "}
+            <span className="font-medium">Project settings</span> to
+            continue.
+          </p>
+        )}
 
         <Field
           label="Name"

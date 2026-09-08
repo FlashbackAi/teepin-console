@@ -27,6 +27,7 @@ import type { Project } from "@/lib/api/types";
 import { useTheme } from "@/components/theme-provider";
 import { ProjectSwitcher } from "@/components/shell/project-switcher";
 import { Wordmark } from "@/components/ui/wordmark";
+import KumbhaMark from "@/components/brand/KumbhaMark";
 
 /**
  * The navigation shell.
@@ -134,6 +135,12 @@ export function Sidebar({
     pathname.startsWith("/compute/") && pathname !== "/compute/cpu";
 
   const projectItems: NavItem[] = [
+    // The agent-flow entry point (KUMBHA-DESIGN.md) — describe an app,
+    // watch it get built, approve the infrastructure cost, ship it.
+    // First in the list: for a customer arriving with "I want to build
+    // something" rather than "I want to manage a resource I already
+    // have", this is the primary action, not an accessory to compute.
+    { label: "Kumbha", href: "/build", icon: KumbhaMark },
     {
       label: "GPU compute",
       href: "/compute",

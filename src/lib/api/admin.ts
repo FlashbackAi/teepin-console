@@ -6,6 +6,7 @@ import type {
   InvoiceChargeState,
   Node,
   NodeCapacity,
+  NodeMetricSample,
   Pricing,
   Project,
 } from "./types";
@@ -225,6 +226,15 @@ export const admin = {
       body: { storage_price_per_gb_month: storagePricePerGBMonth },
     }),
 
+  /** Kumbha Gateway per-million-token rates. Zero is valid ("do not
+   *  charge"), same contract as CPU/storage — every Kumbha session bills
+   *  nothing until an operator sets these. */
+  updateLLMPricing: (body: {
+    llm_price_per_million_input: number;
+    llm_price_per_million_output: number;
+  }) =>
+    adminRequest<Pricing>("/v1/admin/pricing/llm", { method: "PUT", body }),
+
   // --- Nodes (home-compute pilot) -----------------------------------------
   // These routes exist only when the control plane has HOME_COMPUTE_ENABLED;
   // otherwise they 404 and the Nodes page shows a "not enabled" state.
@@ -282,5 +292,13 @@ export const admin = {
     adminRequest<{ message: string; id: string }>(
       `/v1/admin/nodes/${nodeId}/disable`,
       { method: "POST" },
+    ),
+
+  /** This node's utilization history, oldest first. `since` is a Go
+   *  duration string ("1h", "24h"); omitted uses the server's own
+   *  default window (1h) rather than the 7-day max. */
+  getNodeMetrics: (nodeId: string, since?: string) =>
+    adminRequest<{ node_id: string; samples: NodeMetricSample[] }>(
+      `/v1/admin/nodes/${nodeId}/metrics${since ? `?since=${encodeURIComponent(since)}` : ""}`,
     ),
 };

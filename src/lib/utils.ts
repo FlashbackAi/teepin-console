@@ -46,6 +46,28 @@ export function formatMonthly(perHour: number): string {
 }
 
 /**
+ * Format a usage line's quantity for its unit — the "Usage by project"
+ * table (billing/page.tsx). Token counts are large, discrete counts (an
+ * LLM turn's input+output tokens): a raw "39608889.0000" both applies
+ * decimal precision that doesn't mean anything for a token count and is
+ * unreadable at a glance, so tokens use compact notation ("39.6M")
+ * instead, the convention every usage-based LLM dashboard already uses.
+ * Every other unit (hours, GB-month, ...) keeps fixed 4-decimal
+ * precision, where the fraction is real and meaningful — GPU billing
+ * metered in fractions of a cent per hour needs it, same reasoning as
+ * formatCost's own 4dp branch.
+ */
+export function formatQuantity(quantity: number, unit: string): string {
+  if (unit === "tokens") {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(quantity);
+  }
+  return quantity.toFixed(4);
+}
+
+/**
  * Relative time, for "created 4 minutes ago".
  *
  * Absolute timestamps are better for anything a customer may need to
@@ -84,6 +106,36 @@ export function fullTime(iso: string): string {
 export function formatAccountNumber(raw: string): string {
   if (raw.length !== 10) return raw;
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
+}
+
+/**
+ * Strips the registry host off an image reference for display —
+ * `880254196251.dkr.ecr.us-east-1.amazonaws.com/teepin/kumbha-builds-dev:abc123`
+ * becomes `teepin/kumbha-builds-dev:abc123`. Found live 2026-08-26: the
+ * raw ECR-hosted reference was showing an AWS account ID and region on
+ * an instance detail page a customer sees — an implementation detail of
+ * where TEEPIN's OWN registry happens to be hosted today, not something
+ * that should leak into a customer-facing surface, and not something to
+ * couple the UI to (self-hosted Harbor/Kaniko is a real possibility
+ * later, per the same conversation).
+ *
+ * Uses the same heuristic Docker's own reference parser uses to decide
+ * whether the first path segment is a registry host at all, rather than
+ * an image name: it counts as a host only if it contains a `.` or `:`,
+ * or is literally `localhost` — which is exactly what lets this leave
+ * `nginx:alpine` (Docker Hub, no host segment) and any other
+ * host-less reference alone, while still generalizing to Harbor's own
+ * eventual `registry.teepin.cloud/...` references, not just ECR's.
+ * The FULL reference (this function's input) is what a deploy/build
+ * actually uses — this is a display-only transform, never applied to
+ * anything sent back to an API.
+ */
+export function formatImageForDisplay(image: string): string {
+  const slash = image.indexOf("/");
+  if (slash === -1) return image; // no path at all — nothing to strip
+  const first = image.slice(0, slash);
+  const looksLikeHost = first === "localhost" || first.includes(".") || first.includes(":");
+  return looksLikeHost ? image.slice(slash + 1) : image;
 }
 
 /**

@@ -33,9 +33,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   // Access tokens expire after 15 minutes, so a customer who leaves a tab
-  // open and comes back hits this routinely. Without it they sit on a
-  // page where every panel shows an authentication error and nothing
-  // suggests signing in again.
+  // open and comes back would hit this routinely — except request() now
+  // refreshes silently on a 401 before it ever reaches here (see
+  // tryRefresh in lib/api/client.ts, added 2026-08-23: a refresh token
+  // was minted and stored at login this whole time but nothing ever
+  // redeemed it, so every 401 landed here instead). This handler is what
+  // fires when the refresh token itself has also expired (7 days) or was
+  // never obtained — a genuine sign-out, not routine.
   //
   // Gated on `checked` so it cannot fire during the login transition: an
   // in-flight query from a previous session would otherwise clear the

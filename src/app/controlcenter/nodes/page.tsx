@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/shell/page-header";
@@ -109,7 +110,12 @@ export default function ControlCenterNodesPage() {
                 {nodes.data.nodes.map((node) => (
                   <TR key={node.id}>
                     <TD className="font-medium">
-                      <span className="identifier">{node.node_name}</span>
+                      <Link
+                        href={`/controlcenter/nodes/${node.id}`}
+                        className="identifier text-foreground hover:underline"
+                      >
+                        {node.node_name}
+                      </Link>
                     </TD>
                     <TD>
                       <ClassPill nodeClass={node.class} />

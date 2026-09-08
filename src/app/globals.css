@@ -160,6 +160,15 @@ body {
 .hairline-b {
   border-bottom-width: 0.5px;
 }
+/* Used by the sidebar, control-centre layout, and nav group indentation
+   rails (hairline-r/hairline-l) — referenced in those files already, but
+   never defined here, so their intended border silently never rendered. */
+.hairline-l {
+  border-left-width: 0.5px;
+}
+.hairline-r {
+  border-right-width: 0.5px;
+}
 
 /* No motion in navigation: instant state changes. Animation is reserved
    for where it carries meaning (a status changing, a toast arriving),
