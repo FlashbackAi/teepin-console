@@ -60,7 +60,11 @@ export default function ControlCenterNodeDetailPage({
   return (
     <>
       <PageHeader
-        breadcrumb={["Control centre", "Nodes", node?.node_name ?? "…"]}
+        breadcrumb={[
+          { label: "Control centre", href: "/controlcenter" },
+          { label: "Nodes", href: "/controlcenter/nodes" },
+          node?.node_name ?? "…",
+        ]}
       />
 
       <div className="flex flex-col gap-6 p-6">

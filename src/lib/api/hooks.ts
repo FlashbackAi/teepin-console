@@ -2,6 +2,7 @@
 
 import {
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -44,6 +45,14 @@ export const keys = {
   projects: ["projects"] as const,
   apiKeys: (projectId: string) => ["api-keys", projectId] as const,
   instances: ["instances"] as const,
+  // A DIFFERENT top-level key than `instances`, not a sub-key of it —
+  // queryClient.removeQueries({queryKey: keys.instances}) on a project
+  // switch (active-project.tsx's select()) does a PREFIX match, so a
+  // sub-key like ["instances", "by-project", id] would get swept too.
+  // Home's per-project preview rows have nothing to do with which project
+  // is currently active and should survive that switch.
+  instancesForProject: (projectId: string) =>
+    ["instances-by-project", projectId] as const,
   instance: (id: string) => ["instance", id] as const,
   instanceMetrics: (id: string, since: string) => ["instance-metrics", id, since] as const,
   instanceTypes: ["instance-types"] as const,
@@ -53,6 +62,14 @@ export const keys = {
   paymentMethods: ["payment-methods"] as const,
   creditBalance: ["credit-balance"] as const,
   kumbhaSessions: ["kumbha-sessions"] as const,
+  storageBuckets: ["storage-buckets"] as const,
+  storageBucket: (name: string) => ["storage-bucket", name] as const,
+  // Deliberately a 3-element key (bucket, prefix) rather than folding
+  // prefix into a single string: invalidating ["storage-objects", bucket]
+  // after a mutation matches every prefix under that bucket at once,
+  // since React Query invalidates by key PREFIX, not exact match.
+  storageObjects: (bucket: string, prefix: string) =>
+    ["storage-objects", bucket, prefix] as const,
 };
 
 // ---------------------------------------------------------------------
@@ -184,10 +201,26 @@ function pollWhileSettling(instances: Instance[] | undefined) {
 export function useInstances(enabled = true) {
   return useQuery({
     queryKey: keys.instances,
-    queryFn: api.listInstances,
+    queryFn: () => api.listInstances(),
     enabled,
     refetchInterval: (query) =>
       pollWhileSettling(query.state.data?.instances),
+  });
+}
+
+/** Running-instance counts for a handful of OTHER projects — Home's
+ *  projects preview, which needs a quick per-row number without switching
+ *  the app's active project (see api.listInstances' projectId override).
+ *  Deliberately no polling: this is a glance, not a live view. Callers
+ *  should keep the list short (a handful of rows), since this fires one
+ *  request per project. */
+export function useInstanceCountsByProject(projectIds: string[]) {
+  return useQueries({
+    queries: projectIds.map((id) => ({
+      queryKey: keys.instancesForProject(id),
+      queryFn: () => api.listInstances(id),
+      staleTime: 30_000,
+    })),
   });
 }
 
@@ -610,6 +643,119 @@ export function useRollbackKumbhaWorkspace(id: string) {
       void client.invalidateQueries({ queryKey: kumbhaWorkspaceKey(id) });
       void client.invalidateQueries({ queryKey: kumbhaWorkspaceVersionsKey(id) });
     },
+  });
+}
+
+// ---------------------------------------------------------------------
+// Storage (Teepin S3, pkg/objectstore)
+// ---------------------------------------------------------------------
+
+export function useBuckets(enabled = true) {
+  return useQuery({
+    queryKey: keys.storageBuckets,
+    queryFn: api.storage.listBuckets,
+    enabled,
+  });
+}
+
+export function useCreateBucket() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.storage.createBucket(name),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.storageBuckets }),
+  });
+}
+
+export function useDeleteBucket() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.storage.deleteBucket(name),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.storageBuckets }),
+  });
+}
+
+export function useObjects(bucket: string, prefix = "", enabled = true) {
+  return useQuery({
+    queryKey: keys.storageObjects(bucket, prefix),
+    queryFn: () => api.storage.listObjects(bucket, prefix),
+    enabled: enabled && Boolean(bucket),
+  });
+}
+
+export function useObject(bucket: string, key: string, enabled = true) {
+  return useQuery({
+    queryKey: ["storage-object", bucket, key],
+    queryFn: () => api.storage.getObject(bucket, key),
+    enabled: enabled && Boolean(bucket) && Boolean(key),
+  });
+}
+
+/** Single-object delete. Bulk delete (see the object browser page) just
+ *  calls this backend endpoint once per key — there is no batch delete
+ *  API, unlike Kumbha's bulk-delete session endpoint. */
+export function useDeleteObject(bucket: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.storage.deleteObject(bucket, key),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["storage-objects", bucket] }),
+  });
+}
+
+/** Deletes several objects, one request per key, and reports back which
+ *  ones actually succeeded — mirrors useDeleteKumbhaSessions' own
+ *  "backend reports what it actually removed" shape, adapted for a
+ *  backend with no batch endpoint to delegate to. */
+export function useDeleteObjects(bucket: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (objectKeys: string[]) => {
+      const results = await Promise.allSettled(
+        objectKeys.map((key) => api.storage.deleteObject(bucket, key)),
+      );
+      return objectKeys.filter((_, i) => results[i].status === "fulfilled");
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["storage-objects", bucket] }),
+  });
+}
+
+/** Creates an empty "folder" — the standard S3-console convention: a
+ *  zero-byte placeholder object whose key ends in "/". There is no real
+ *  folder concept server-side (see the object browser page's own doc
+ *  comment), so this is purely a catalog row that the client-side
+ *  folder-splitting logic already treats as evidence of a folder —
+ *  nothing else needed to special-case it. */
+export function useCreateFolder(bucket: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.storage.uploadObject(bucket, key, new File([], "")),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["storage-objects", bucket] }),
+  });
+}
+
+/** Deletes a "folder" and everything under it: lists every object whose
+ *  key starts with folderPrefix (the placeholder included, if present)
+ *  and deletes each one, same one-request-per-key shape as
+ *  useDeleteObjects since there's no batch endpoint or real folder
+ *  entity to target with a single call. Only lists one page — a folder
+ *  with more objects than a single list response covers won't be fully
+ *  cleared in one go, same existing limitation the object browser has
+ *  everywhere else (it never paginates either). */
+export function useDeleteFolder(bucket: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (folderPrefix: string) => {
+      const page = await api.storage.listObjects(bucket, folderPrefix);
+      const keys = page.objects.map((o) => o.key);
+      const results = await Promise.allSettled(
+        keys.map((key) => api.storage.deleteObject(bucket, key)),
+      );
+      return keys.filter((_, i) => results[i].status === "fulfilled");
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["storage-objects", bucket] }),
   });
 }
 

@@ -254,7 +254,12 @@ export default function BuildSessionPage({
   return (
     <>
       <PageHeader
-        breadcrumb={["Projects", project?.name ?? "…", "Kumbha", data?.label || id]}
+        breadcrumb={[
+          { label: "Projects", href: "/projects" },
+          project ? { label: project.name, href: "/home" } : "…",
+          { label: "Kumbha", href: "/build" },
+          data?.label || id,
+        ]}
         action={
           data?.agent_running ? (
             <Button

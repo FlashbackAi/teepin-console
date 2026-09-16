@@ -28,6 +28,8 @@ export default function ControlCenterPricingPage() {
   const [rate, setRate] = useState("");
   const [cpuRate, setCpuRate] = useState("");
   const [memRate, setMemRate] = useState("");
+  const [pCoreRate, setPCoreRate] = useState("");
+  const [eCoreRate, setECoreRate] = useState("");
   const [storageRate, setStorageRate] = useState("");
   const [llmInRate, setLlmInRate] = useState("");
   const [llmOutRate, setLlmOutRate] = useState("");
@@ -37,6 +39,8 @@ export default function ControlCenterPricingPage() {
       setRate(String(pricing.data.vram_price_per_gb_hour));
       setCpuRate(String(pricing.data.cpu_price_per_core_hour ?? 0));
       setMemRate(String(pricing.data.memory_price_per_gb_hour ?? 0));
+      setPCoreRate(String(pricing.data.p_core_price_per_hour ?? 0));
+      setECoreRate(String(pricing.data.e_core_price_per_hour ?? 0));
       setStorageRate(String(pricing.data.storage_price_per_gb_month ?? 0));
       setLlmInRate(String(pricing.data.llm_price_per_million_input ?? 0));
       setLlmOutRate(String(pricing.data.llm_price_per_million_output ?? 0));
@@ -53,6 +57,15 @@ export default function ControlCenterPricingPage() {
       admin.updateCPUPricing({
         cpu_price_per_core_hour: Number(cpuRate),
         memory_price_per_gb_hour: Number(memRate),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
+  });
+
+  const updatePECore = useMutation({
+    mutationFn: () =>
+      admin.updatePECorePricing({
+        p_core_price_per_hour: Number(pCoreRate),
+        e_core_price_per_hour: Number(eCoreRate),
       }),
     onSuccess: (data) => queryClient.setQueryData(["admin", "pricing"], data),
   });
@@ -78,6 +91,11 @@ export default function ControlCenterPricingPage() {
       Number(cpuRate) !== pricing.data?.cpu_price_per_core_hour) ||
     (memRate !== "" &&
       Number(memRate) !== pricing.data?.memory_price_per_gb_hour);
+  const pECoreDirty =
+    (pCoreRate !== "" &&
+      Number(pCoreRate) !== pricing.data?.p_core_price_per_hour) ||
+    (eCoreRate !== "" &&
+      Number(eCoreRate) !== pricing.data?.e_core_price_per_hour);
   const storageDirty =
     storageRate !== "" &&
     Number(storageRate) !== pricing.data?.storage_price_per_gb_month;
@@ -89,7 +107,9 @@ export default function ControlCenterPricingPage() {
 
   return (
     <>
-      <PageHeader breadcrumb={["Control centre", "Pricing"]} />
+      <PageHeader
+        breadcrumb={[{ label: "Control centre", href: "/controlcenter" }, "Pricing"]}
+      />
 
       <div className="flex max-w-xl flex-col gap-6 p-6">
         <Card>
@@ -211,6 +231,79 @@ export default function ControlCenterPricingPage() {
                   {updateCPU.isPending ? "Saving…" : "Update CPU rates"}
                 </Button>
                 {updateCPU.isSuccess && !cpuDirty && (
+                  <span className="text-muted-foreground text-xs">Saved.</span>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>P-core / E-core rates</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                updatePECore.mutate();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <Field
+                label="Price per P-core-hour (USD)"
+                hint="Applies only to a home-node instance placed with a detected P-core/E-core split. 0 = do not charge."
+                htmlFor="p-core-rate"
+              >
+                <Input
+                  id="p-core-rate"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={pCoreRate}
+                  onChange={(e) => setPCoreRate(e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Price per E-core-hour (USD)"
+                hint="0 = do not charge."
+                error={updatePECore.isError ? errorMessage(updatePECore.error) : undefined}
+                htmlFor="e-core-rate"
+              >
+                <Input
+                  id="e-core-rate"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  required
+                  className="tabular"
+                  value={eCoreRate}
+                  onChange={(e) => setECoreRate(e.target.value)}
+                />
+              </Field>
+
+              {/* The rate that actually applies without a detected split is
+                  the CPU card above — stated here so the two cards are
+                  never mistaken for alternatives. */}
+              <p className="text-muted-foreground text-xs">
+                A home-node instance with no detected P/E split still bills
+                off the CPU rate above, unchanged. These rates apply only
+                once a split is detected. Applies to the next billing tick;
+                existing usage keeps its metered rate.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!pECoreDirty || updatePECore.isPending}
+                >
+                  {updatePECore.isPending ? "Saving…" : "Update P/E-core rates"}
+                </Button>
+                {updatePECore.isSuccess && !pECoreDirty && (
                   <span className="text-muted-foreground text-xs">Saved.</span>
                 )}
               </div>

@@ -2,11 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { Project } from "@/lib/api/types";
+import { CreateProjectDialog } from "@/components/shell/create-project-dialog";
 import { EnvironmentBadge } from "@/components/ui/environment-badge";
+
+// Past this many, the dropdown stops trying to list every project — it
+// switches to a fixed preview plus a link to the full /projects page
+// instead of scrolling indefinitely inside a small popover.
+const PREVIEW_COUNT = 6;
 
 /**
  * Project switcher.
@@ -27,7 +33,19 @@ export function ProjectSwitcher({
   onSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // The active project always leads — it's what the customer is already
+  // looking at — then the rest newest-first, since a project just created
+  // is the one most likely being switched to next.
+  const ordered = [...projects].sort((a, b) => {
+    if (a.id === active?.id) return -1;
+    if (b.id === active?.id) return 1;
+    return (
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  });
 
   // Close on outside click and on Escape — a dropdown that traps the
   // customer is worse than one that closes too eagerly.
@@ -86,7 +104,7 @@ export function ProjectSwitcher({
           className="hairline absolute top-full left-0 z-50 mt-1 w-full overflow-hidden rounded-md border-border bg-card shadow-lg"
         >
           <div className="max-h-64 overflow-y-auto p-1">
-            {projects.map((project) => (
+            {ordered.slice(0, PREVIEW_COUNT).map((project) => (
               <button
                 key={project.id}
                 role="option"
@@ -111,27 +129,35 @@ export function ProjectSwitcher({
             ))}
           </div>
 
-          <div className="hairline-t border-border p-1">
-            <Link
-              href="/projects"
-              onClick={() => setOpen(false)}
-              className="text-muted-foreground hover:text-foreground hover:bg-muted flex h-7 items-center gap-2 rounded px-2 text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New project
-            </Link>
-            {active && (
+          {projects.length > PREVIEW_COUNT && (
+            <div className="hairline-t border-border p-1">
               <Link
-                href={`/projects/${active.id}`}
+                href="/projects"
                 onClick={() => setOpen(false)}
                 className="text-muted-foreground hover:text-foreground hover:bg-muted flex h-7 items-center gap-2 rounded px-2 text-xs"
               >
-                <Settings className="h-3.5 w-3.5" />
-                Project settings
+                View all {projects.length} projects →
               </Link>
-            )}
+            </div>
+          )}
+
+          <div className="hairline-t border-border p-1">
+            <button
+              onClick={() => {
+                setOpen(false);
+                setCreating(true);
+              }}
+              className="text-muted-foreground hover:text-foreground hover:bg-muted flex h-7 w-full items-center gap-2 rounded px-2 text-left text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New project
+            </button>
           </div>
         </div>
+      )}
+
+      {creating && (
+        <CreateProjectDialog onClose={() => setCreating(false)} />
       )}
     </div>
   );

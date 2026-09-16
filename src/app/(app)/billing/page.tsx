@@ -161,7 +161,7 @@ function OverviewTab({
       {!billing?.projects.length ? null : (
         <Card>
           <CardHeader>
-            <CardTitle>By project this period</CardTitle>
+            <CardTitle>Usage by project</CardTitle>
           </CardHeader>
           <Table>
             <THead>

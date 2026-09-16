@@ -170,7 +170,13 @@ export default function BuildComposerPage() {
 
   return (
     <>
-      <PageHeader breadcrumb={["Projects", project?.name ?? "…", "Kumbha"]} />
+      <PageHeader
+        breadcrumb={[
+          { label: "Projects", href: "/projects" },
+          project ? { label: project.name, href: "/home" } : "…",
+          "Kumbha",
+        ]}
+      />
 
       <div className="mx-auto flex max-w-2xl flex-col gap-5 px-6 py-16">
         <div className="text-center">

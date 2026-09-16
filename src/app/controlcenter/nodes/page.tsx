@@ -63,7 +63,9 @@ export default function ControlCenterNodesPage() {
 
   return (
     <>
-      <PageHeader breadcrumb={["Control centre", "Nodes"]} />
+      <PageHeader
+        breadcrumb={[{ label: "Control centre", href: "/controlcenter" }, "Nodes"]}
+      />
 
       <div className="flex flex-col gap-6 p-6">
         <Card>
@@ -240,7 +242,16 @@ function describeCapacity(node: Node, cap?: NodeCapacity): string {
 
 function describeSpecs(node: Node): string {
   const parts: string[] = [];
-  if (node.cpu_cores) parts.push(`${node.cpu_cores} vCPU`);
+  if (node.cpu_cores) {
+    // A detected P/E split is shown alongside the flat vCPU count rather
+    // than replacing it — the split is informational, and placement still
+    // reasons about total capacity first.
+    const split =
+      node.p_cores && node.p_cores > 0
+        ? ` (${node.p_cores}P/${node.e_cores ?? 0}E)`
+        : "";
+    parts.push(`${node.cpu_cores} vCPU${split}`);
+  }
   if (node.memory_gb) parts.push(`${node.memory_gb} GB`);
   // A consumer GPU is shown as an attribute, not sellable VRAM.
   if (node.gpu_count > 0 && node.gpu_model) {

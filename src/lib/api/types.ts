@@ -200,6 +200,12 @@ export interface CreateInstanceRequest {
    *  Omit or 0 for an ephemeral instance. On a home node the volume is
    *  node-local — it does not survive that node going offline. */
   storage_gb?: number;
+  /** Optional, explicit P-core/E-core preference for a home-node instance.
+   *  Omit both for no preference — the platform either bills via
+   *  cpu_units alone (a node with no detected split) or picks a
+   *  proportional default. Ignored on the GPU/datacenter path. */
+  p_cores?: number;
+  e_cores?: number;
 }
 
 export interface InstanceType {
@@ -376,6 +382,11 @@ export interface Pricing {
    *  the gateway routes to. */
   llm_price_per_million_input: number;
   llm_price_per_million_output: number;
+  /** P-core/E-core rates for a home-node instance placed with a detected
+   *  split — cpu_price_per_core_hour above remains the rate for an
+   *  instance with no detected split. Additive, not a replacement. */
+  p_core_price_per_hour: number;
+  e_core_price_per_hour: number;
   updated_by?: string;
   updated_at?: string;
 }
@@ -391,6 +402,13 @@ export interface Node {
   region?: string;
   cpu_cores?: number;
   memory_gb?: number;
+  /** Physical-core P-core/E-core split for a hybrid consumer CPU, detected
+   *  by cmd/teepin-hostprobe (Windows/macOS) or natively (bare-metal
+   *  Linux). Both absent/0 means no split was detected — a homogeneous
+   *  CPU, an agent predating this feature, or a hypervisor that does not
+   *  expose real core-type info to its guest. */
+  p_cores?: number;
+  e_cores?: number;
   /** A consumer GPU is recorded as an attribute, never as sellable VRAM. */
   gpu_model?: string;
   gpu_count: number;
@@ -467,6 +485,12 @@ export interface HomeCapacity {
   total_free_memory_gb: number;
   max_free_cpu_cores: number;
   max_free_memory_gb: number;
+  // Live per-resource rates — the exact formula each tier above is priced
+  // with (cpu_units*cpu_core_rate + memory_gb*memory_gb_rate). Lets a
+  // free-form vCPU/memory entry quote itself the same way, live, without a
+  // round trip per keystroke.
+  cpu_core_rate_per_hour: number;
+  memory_gb_rate_per_hour: number;
 }
 
 export interface BillingSummary {
@@ -779,4 +803,45 @@ export interface KumbhaWorkspaceVersionInfo {
    *  never-deployed edit had no way to be told apart from one that was
    *  later deployed). */
   is_deployed: boolean;
+}
+
+// ---------------------------------------------------------------------
+// Teepin S3 (pkg/objectstore).
+// ---------------------------------------------------------------------
+
+/** A catalog construct only — never a real bucket on whatever backend is
+ *  active. See pkg/objectstore's own doc comment for why. */
+export interface Bucket {
+  id: string;
+  name: string;
+  backend: string;
+  object_count: number;
+  total_bytes: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type StorageObjectStatus =
+  | "available"
+  | "failed"
+  | "deleted"
+  | "missing"
+  | "orphaned";
+
+/** One object in a bucket. There is no `physical_key` here on purpose —
+ *  the backend's internal addressing never reaches the API response, see
+ *  pkg/models.StorageObject's own doc comment. */
+export interface StorageObject {
+  id: string;
+  key: string;
+  size_bytes: number;
+  content_type?: string;
+  metadata?: Record<string, string>;
+  checksum_sha256?: string;
+  status: StorageObjectStatus;
+  backend: string;
+  upload_error?: string;
+  created_at: string;
+  updated_at: string;
+  uploaded_at?: string;
 }

@@ -69,8 +69,8 @@ export default function ControlCenterAccountPage({
     <>
       <PageHeader
         breadcrumb={[
-          "Control centre",
-          "Accounts",
+          { label: "Control centre", href: "/controlcenter" },
+          { label: "Accounts", href: "/controlcenter" },
           account?.display_name ?? "…",
         ]}
         action={

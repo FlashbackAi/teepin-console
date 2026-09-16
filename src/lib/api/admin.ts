@@ -220,6 +220,16 @@ export const admin = {
   }) =>
     adminRequest<Pricing>("/v1/admin/pricing/cpu", { method: "PUT", body }),
 
+  /** P-core/E-core rates for a home-node instance placed with a detected
+   *  split (see cmd/teepin-hostprobe). cpu_price_per_core_hour above
+   *  remains the rate for an instance with no detected split — these two
+   *  are additive, not a replacement. Zero is valid ("do not charge"). */
+  updatePECorePricing: (body: {
+    p_core_price_per_hour: number;
+    e_core_price_per_hour: number;
+  }) =>
+    adminRequest<Pricing>("/v1/admin/pricing/cpu-pe", { method: "PUT", body }),
+
   updateStoragePricing: (storagePricePerGBMonth: number) =>
     adminRequest<Pricing>("/v1/admin/pricing/storage", {
       method: "PUT",

@@ -62,9 +62,13 @@ export default function InstanceDetailPage({
     <>
       <PageHeader
         breadcrumb={[
-          "Projects",
-          project?.name ?? "…",
-          section === "gpu" ? "GPU compute" : section === "cpu" ? "CPU compute" : "Compute",
+          { label: "Projects", href: "/projects" },
+          project ? { label: project.name, href: "/home" } : "…",
+          section === "gpu"
+            ? { label: "GPU compute", href: "/compute" }
+            : section === "cpu"
+              ? { label: "CPU compute", href: "/compute/cpu" }
+              : "Compute",
           id,
         ]}
         action={

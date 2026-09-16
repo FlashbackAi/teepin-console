@@ -20,7 +20,7 @@ import {
 import { fullTime } from "@/lib/utils";
 import type { Environment, Project } from "@/lib/api/types";
 
-import { ApiKeysPanel } from "./api-keys-panel";
+import { ApiKeysPanel } from "../api-keys-panel";
 
 export default function ProjectSettingsPage({
   params,
@@ -35,7 +35,7 @@ export default function ProjectSettingsPage({
   if (isLoading) {
     return (
       <>
-        <PageHeader breadcrumb={["Projects", "…"]} />
+        <PageHeader breadcrumb={[{ label: "Projects", href: "/projects" }, "…"]} />
         <Loading className="py-16" />
       </>
     );
@@ -44,7 +44,9 @@ export default function ProjectSettingsPage({
   if (!project) {
     return (
       <>
-        <PageHeader breadcrumb={["Projects", "Not found"]} />
+        <PageHeader
+          breadcrumb={[{ label: "Projects", href: "/projects" }, "Not found"]}
+        />
         <div className="text-muted-foreground p-6 text-sm">
           This project does not exist, or belongs to another account.
         </div>
@@ -63,7 +65,13 @@ function Settings({ project }: { project: Project }) {
 
   return (
     <>
-      <PageHeader breadcrumb={["Projects", project.name, "Settings"]} />
+      <PageHeader
+        breadcrumb={[
+          { label: "Projects", href: "/projects" },
+          { label: project.name, href: "/home" },
+          "Settings",
+        ]}
+      />
       <Tabs
         tabs={[
           { id: "general", label: "General" },

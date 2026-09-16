@@ -22,8 +22,10 @@ import type {
   KumbhaWorkspaceVersionInfo,
   LoginResponse,
   PaymentMethod,
+  Bucket,
   Project,
   RegisterResponse,
+  StorageObject,
   UpdateAccountRequest,
   UpdateProjectRequest,
   User,
@@ -50,6 +52,12 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** tokens.epoch as it stood when the FAILING request was sent — see
+     *  tokens.epoch's own doc comment for why AuthGuard needs this to
+     *  tell a genuine sign-out from a stale request's late 401. Absent
+     *  for errors that never touched auth (network failures thrown
+     *  before a request left, anonymous calls). */
+    public epoch?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -99,6 +107,24 @@ const SESSION_KEYS = [
   "teepin-active-project",
 ];
 
+// Bumped by every set()/clear() — an in-memory generation counter, not
+// persisted, so it also naturally resets (to 0, matching a fresh reload's
+// requests) on a full page load. Exists so a request that was already
+// in-flight under an OLDER session can be told apart from one failing
+// under the CURRENT one: request() stamps the epoch it was sent under
+// onto its ApiError, and AuthGuard only treats a 401 as a real sign-out
+// when that stamped epoch still matches the current one. Without this, a
+// request left over from before a sign-out (or before a fresh sign-in
+// replaces it) can resolve with a 401 AFTER the customer has since logged
+// in successfully, and — because tokens.access is truthy again by
+// then — wipe the brand-new session it has nothing to do with, bouncing
+// them back to the login form they had just gotten past. Found live
+// 2026-09-15: the new project dashboard fires three parallel
+// project-scoped queries on first mount (previously the landing page fired
+// fewer), which raised the odds of exactly one of them being the late
+// straggler that triggers this.
+let epoch = 0;
+
 export const tokens = {
   get access() {
     if (typeof window === "undefined") return null;
@@ -108,14 +134,19 @@ export const tokens = {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(REFRESH_TOKEN_KEY);
   },
+  get epoch() {
+    return epoch;
+  },
   set(access: string, refresh: string) {
     localStorage.setItem(ACCESS_TOKEN_KEY, access);
     localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+    epoch++;
   },
   clear() {
     for (const key of SESSION_KEYS) {
       localStorage.removeItem(key);
     }
+    epoch++;
   },
 };
 
@@ -148,6 +179,12 @@ type RequestOptions = {
   /** This call is project-scoped (a compute endpoint) — attach
    *  X-Project-ID from the active project alongside the JWT. */
   projectScoped?: boolean;
+  /** Overrides the active project's ID for this one call — e.g. a
+   *  dashboard preview reading a few other projects' instance counts
+   *  without switching the whole app's active project. Only meaningful
+   *  alongside projectScoped: true; falls back to activeProject.current
+   *  when omitted. */
+  projectId?: string;
 };
 
 // Deduplicates concurrent refresh attempts into one in-flight request.
@@ -208,15 +245,16 @@ async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = "GET", body, anonymous, projectScoped } = options;
+  const { method = "GET", body, anonymous, projectScoped, projectId } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (!anonymous) {
     if (tokens.access) headers.Authorization = `Bearer ${tokens.access}`;
-    if (projectScoped && activeProject.current) {
-      headers["X-Project-ID"] = activeProject.current;
+    const scopedProject = projectId ?? activeProject.current;
+    if (projectScoped && scopedProject) {
+      headers["X-Project-ID"] = scopedProject;
     }
   }
 
@@ -249,7 +287,11 @@ async function request<T>(
     } catch {
       /* keep the status-based message */
     }
-    throw new ApiError(response.status, message);
+    // Stamped at the moment this failure is finalized (after any
+    // refresh-and-retry above), not when the request started — see
+    // tokens.epoch's own doc comment for why AuthGuard needs this
+    // specific snapshot to tell a genuine sign-out from a stale request.
+    throw new ApiError(response.status, message, tokens.epoch);
   }
 
   // 204 and other empty responses have no body to parse.
@@ -333,8 +375,14 @@ export const api = {
   // -------------------------------------------------------------------
   // Compute — project-scoped: the user's JWT + X-Project-ID
   // -------------------------------------------------------------------
-  listInstances: () =>
-    request<InstanceList>("/v1/compute/instances", { projectScoped: true }),
+  /** `projectId` overrides the active project — used by the Home page's
+   *  preview to read another project's running count without switching
+   *  the app's active project (see RequestOptions.projectId). */
+  listInstances: (projectId?: string) =>
+    request<InstanceList>("/v1/compute/instances", {
+      projectScoped: true,
+      projectId,
+    }),
 
   getInstance: (id: string) =>
     request<Instance>(`/v1/compute/instances/${id}`, { projectScoped: true }),
@@ -401,6 +449,135 @@ export const api = {
       `/v1/compute/image-ports?image=${encodeURIComponent(image)}`,
       { projectScoped: true },
     ),
+
+  // -------------------------------------------------------------------
+  // Storage (Teepin S3, pkg/objectstore) — project-scoped like Compute.
+  // Object keys travel as a query parameter, never a path segment (a
+  // key containing "/" would otherwise be ambiguous against the route
+  // itself) — see pkg/api/objectstore_handlers.go's own comment on why.
+  // -------------------------------------------------------------------
+  storage: {
+    listBuckets: () =>
+      request<{ buckets: Bucket[] }>("/v1/storage/buckets", {
+        projectScoped: true,
+      }),
+
+    createBucket: (name: string) =>
+      request<Bucket>("/v1/storage/buckets", {
+        method: "POST",
+        body: { name },
+        projectScoped: true,
+      }),
+
+    getBucket: (bucket: string) =>
+      request<Bucket>(`/v1/storage/buckets/${encodeURIComponent(bucket)}`, {
+        projectScoped: true,
+      }),
+
+    deleteBucket: (bucket: string) =>
+      request<void>(`/v1/storage/buckets/${encodeURIComponent(bucket)}`, {
+        method: "DELETE",
+        projectScoped: true,
+      }),
+
+    listObjects: (bucket: string, prefix?: string, cursor?: string) => {
+      const qs = new URLSearchParams();
+      if (prefix) qs.set("prefix", prefix);
+      if (cursor) qs.set("cursor", cursor);
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return request<{ objects: StorageObject[] }>(
+        `/v1/storage/buckets/${encodeURIComponent(bucket)}/objects${suffix}`,
+        { projectScoped: true },
+      );
+    },
+
+    getObject: (bucket: string, key: string) =>
+      request<StorageObject>(
+        `/v1/storage/buckets/${encodeURIComponent(bucket)}/object?key=${encodeURIComponent(key)}`,
+        { projectScoped: true },
+      ),
+
+    deleteObject: (bucket: string, key: string) =>
+      request<void>(
+        `/v1/storage/buckets/${encodeURIComponent(bucket)}/object?key=${encodeURIComponent(key)}`,
+        { method: "DELETE", projectScoped: true },
+      ),
+
+    /** Mints a short-lived, unauthenticated download link (Teepin's own
+     *  stand-in for a presigned URL — see pkg/objectstore/signer.go) and
+     *  resolves it to an absolute URL, since the API returns a path
+     *  relative to itself, not to the console's own origin.
+     *
+     *  disposition chooses "inline" (Preview — renders in the browser) vs.
+     *  "attachment" (Download — forces a save-as); it's baked into the
+     *  SIGNED token server-side, not something the redemption URL itself
+     *  can be edited to change. */
+    mintDownloadUrl: async (
+      bucket: string,
+      key: string,
+      disposition: "inline" | "attachment",
+      ttlSeconds?: number,
+    ) => {
+      const qs = new URLSearchParams({ key, disposition });
+      if (ttlSeconds) qs.set("ttl_seconds", String(ttlSeconds));
+      const res = await request<{ url: string; expires_at: string }>(
+        `/v1/storage/buckets/${encodeURIComponent(bucket)}/object/download-url?${qs}`,
+        { method: "POST", projectScoped: true },
+      );
+      return { ...res, url: `${BASE_URL}${res.url}` };
+    },
+
+    /** Streams a file straight into the backend via a single PUT — see
+     *  Service.PutObject's own doc comment: there is no staging step, the
+     *  request only resolves once the write has actually succeeded or
+     *  failed for real. A raw XMLHttpRequest, not fetch(): only XHR
+     *  exposes upload progress, and given Shelby's measured throughput a
+     *  progress bar here is load-bearing, not a nicety. */
+    uploadObject: (
+      bucket: string,
+      key: string,
+      file: File,
+      onProgress?: (percent: number) => void,
+    ): Promise<StorageObject> => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const qs = new URLSearchParams({ key });
+        xhr.open(
+          "PUT",
+          `${BASE_URL}/v1/storage/buckets/${encodeURIComponent(bucket)}/object?${qs}`,
+        );
+        if (tokens.access) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access}`);
+        if (activeProject.current) xhr.setRequestHeader("X-Project-ID", activeProject.current);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+
+        xhr.upload.onprogress = (event) => {
+          if (onProgress && event.lengthComputable) {
+            onProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText) as StorageObject);
+            } catch {
+              reject(new ApiError(xhr.status, "Upload succeeded but the response could not be parsed"));
+            }
+            return;
+          }
+          let message = `Request failed (${xhr.status})`;
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (typeof data?.error === "string") message = data.error;
+          } catch {
+            /* keep the status-based message */
+          }
+          reject(new ApiError(xhr.status, message, tokens.epoch));
+        };
+        xhr.onerror = () => reject(new ApiError(0, "Network error during upload"));
+        xhr.send(file);
+      });
+    },
+  },
 
   // -------------------------------------------------------------------
   // Billing
@@ -699,7 +876,7 @@ export const api = {
       } catch {
         /* keep the status-based message */
       }
-      throw new ApiError(response.status, message);
+      throw new ApiError(response.status, message, tokens.epoch);
     }
 
     const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -732,7 +909,7 @@ export const api = {
     const response = await fetch(`${BASE_URL}/v1/kumbha/sessions/${id}/screenshot`, { headers });
     if (response.status === 404) return null;
     if (!response.ok) {
-      throw new ApiError(response.status, `Request failed (${response.status})`);
+      throw new ApiError(response.status, `Request failed (${response.status})`, tokens.epoch);
     }
     const blob = await response.blob();
     return URL.createObjectURL(blob);

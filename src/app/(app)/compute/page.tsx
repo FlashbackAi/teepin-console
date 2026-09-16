@@ -37,7 +37,11 @@ export default function ComputePage() {
   return (
     <>
       <PageHeader
-        breadcrumb={["Projects", project?.name ?? "…", "GPU compute"]}
+        breadcrumb={[
+          { label: "Projects", href: "/projects" },
+          project ? { label: project.name, href: "/home" } : "…",
+          "GPU compute",
+        ]}
         action={
           <Button
             variant="primary"

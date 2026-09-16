@@ -56,6 +56,23 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       // stale error replayed after sign-out triggers a second redirect.
       if (!tokens.access) return;
 
+      // The `checked` gate above only protects the LOGIN transition
+      // itself — it does nothing for a request that was already in
+      // flight before this session started and simply takes longer to
+      // fail than the sign-in + redirect + remount took to complete.
+      // That request's 401 lands here with tokens.access now truthy
+      // again (the NEW session's token), passing the check above despite
+      // having nothing to do with it — and would otherwise wipe a
+      // brand-new, perfectly valid session. error.epoch (stamped by
+      // request() at the moment IT gave up, see tokens.epoch's own doc
+      // comment) is what actually distinguishes the two cases: if a
+      // newer sign-in/refresh has happened since, the epoch has moved on
+      // and this error is stale, not a reason to sign out. Found live
+      // 2026-09-15 — the project dashboard's three parallel first-mount
+      // queries made this pre-existing gap easy to hit (a customer could
+      // need two login attempts before one actually stuck).
+      if (error.epoch !== undefined && error.epoch !== tokens.epoch) return;
+
       // Defer to a microtask: the cache can emit synchronously WHILE a
       // component is rendering (a query that errors during its first
       // render), and clearing state + navigating inline would be a
@@ -65,6 +82,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       // settles, off React's synchronous path.
       queueMicrotask(() => {
         if (!tokens.access) return; // re-check: a concurrent sign-in may have set one
+        if (error.epoch !== undefined && error.epoch !== tokens.epoch) return;
         tokens.clear();
         queryClient.clear();
         router.replace("/login");

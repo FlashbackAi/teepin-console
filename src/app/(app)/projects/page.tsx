@@ -6,11 +6,10 @@ import { Check, Settings } from "lucide-react";
 
 import { EnvironmentBadge } from "@/components/ui/environment-badge";
 
+import { CreateProjectDialog } from "@/components/shell/create-project-dialog";
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Dialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/input";
 import { Loading } from "@/components/ui/loading";
 import {
   EmptyState,
@@ -22,7 +21,6 @@ import {
   Table,
 } from "@/components/ui/table";
 import { useActiveProject } from "@/lib/active-project";
-import { errorMessage, useCreateProject } from "@/lib/api/hooks";
 import { fullTime, timeAgo } from "@/lib/utils";
 
 export default function ProjectsPage() {
@@ -107,7 +105,7 @@ export default function ProjectsPage() {
                     </TD>
                     <TD className="text-right">
                       <Link
-                        href={`/projects/${project.id}`}
+                        href={`/projects/${project.id}/settings`}
                         // Without this the row's own click handler also
                         // fires and switches projects on the way to
                         // settings — surprising, and easy to miss.
@@ -128,71 +126,5 @@ export default function ProjectsPage() {
 
       {creating && <CreateProjectDialog onClose={() => setCreating(false)} />}
     </>
-  );
-}
-
-function CreateProjectDialog({ onClose }: { onClose: () => void }) {
-  const create = useCreateProject();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-
-  return (
-    <Dialog
-      title="Create project"
-      description="Projects scope instances, API keys and billing."
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            form="create-project"
-            type="submit"
-            disabled={create.isPending}
-          >
-            {create.isPending ? "Creating…" : "Create project"}
-          </Button>
-        </>
-      }
-    >
-      <form
-        id="create-project"
-        onSubmit={(event) => {
-          event.preventDefault();
-          create.mutate({ name, description }, { onSuccess: onClose });
-        }}
-        className="flex flex-col gap-4"
-      >
-        <Field
-          label="Name"
-          hint="Must be unique within your account."
-          htmlFor="project-name"
-        >
-          <Input
-            id="project-name"
-            required
-            placeholder="production"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <Field label="Description" htmlFor="project-description">
-          <Input
-            id="project-description"
-            placeholder="Optional"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
-        {create.isError && (
-          <p className="text-destructive text-xs">
-            {errorMessage(create.error)}
-          </p>
-        )}
-      </form>
-    </Dialog>
   );
 }

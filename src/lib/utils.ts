@@ -68,6 +68,22 @@ export function formatQuantity(quantity: number, unit: string): string {
 }
 
 /**
+ * Format a byte count for display (1 KB = 1024 bytes, matching how every
+ * object-storage size is actually measured — not the decimal 1000-based
+ * convention used for network throughput elsewhere).
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  return `${exponent === 0 ? value : value.toFixed(1)} ${units[exponent]}`;
+}
+
+/**
  * Relative time, for "created 4 minutes ago".
  *
  * Absolute timestamps are better for anything a customer may need to

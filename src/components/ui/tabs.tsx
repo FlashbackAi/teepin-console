@@ -39,10 +39,10 @@ export function Tabs({
           aria-selected={tab.id === active}
           onClick={() => onChange(tab.id)}
           className={cn(
-            "flex h-9 items-center gap-1.5 rounded-t-md px-3 text-sm",
+            "flex h-9 items-center gap-1.5 rounded-t-md px-3 text-xs",
             "border-b-2 -mb-px transition-colors duration-100",
             tab.id === active
-              ? "border-foreground text-foreground font-medium"
+              ? "bg-muted border-foreground text-foreground font-medium"
               : "text-muted-foreground hover:text-foreground border-transparent",
           )}
         >

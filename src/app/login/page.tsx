@@ -20,7 +20,11 @@ export default function LoginPage() {
     event.preventDefault();
     login.mutate(
       { email, password },
-      { onSuccess: () => router.push("/compute") },
+      // Root's own redirect logic decides where a signed-in customer
+      // lands (their last-active project's dashboard, or /projects for
+      // someone with none selected yet) — one place to keep in sync
+      // rather than duplicating that choice here and in signup.
+      { onSuccess: () => router.push("/") },
     );
   };
 

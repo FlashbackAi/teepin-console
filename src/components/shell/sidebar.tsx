@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
-  Boxes,
   ChevronDown,
   CreditCard,
   Cpu,
@@ -16,6 +15,7 @@ import {
   Settings,
   Sun,
   BookOpen,
+  User,
   Zap,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -153,13 +153,13 @@ export function Sidebar({
       icon: Cpu,
       meta: cpuRunning ? String(cpuRunning) : undefined,
     },
-    { label: "Storage", icon: Database, soon: true },
+    { label: "Storage", href: "/storage", icon: Database },
     { label: "Registry", href: "/registry", icon: Package },
     // Settings belong to the project being viewed, so the link carries
     // its ID rather than pointing at a page that has to guess.
     {
       label: "Project settings",
-      href: activeProject ? `/projects/${activeProject.id}` : undefined,
+      href: activeProject ? `/projects/${activeProject.id}/settings` : undefined,
       icon: Settings,
     },
   ];
@@ -175,7 +175,10 @@ export function Sidebar({
   ];
 
   const accountItems: NavItem[] = [
-    { label: "Account", href: "/settings/account", icon: Settings },
+    // A person icon, not Settings — Project settings (above) already uses
+    // the gear, and the audit flagged the two reading as identical despite
+    // pointing at very different pages (account vs. project config).
+    { label: "Account", href: "/settings/account", icon: User },
   ];
 
   // Every nav href, so the active-route matcher can defer to the most
@@ -195,7 +198,9 @@ export function Sidebar({
           it to support, and hunting for it during an incident is a
           small, avoidable indignity. */}
       <div className="hairline-b border-border px-3 py-3">
-        <Wordmark height={32} className="mb-3" />
+        <Link href="/home" className="mb-3 block w-fit">
+          <Wordmark height={32} />
+        </Link>
         <div className="text-foreground truncate text-sm font-medium">
           {accountName}
         </div>
@@ -205,14 +210,16 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        <NavLink
-          href="/projects"
-          icon={Boxes}
-          label="Projects"
-          active={isActiveRoute(pathname, "/projects", allHrefs)}
-        />
+        {/* A plain label, not a nav link — the switcher right below it
+            already covers "see other projects" (its own dropdown lists
+            them, plus "New project"), so a separate clickable "Projects"
+            tab pointing at the same list page was a redundant second way
+            to do the same thing. */}
+        <div className="text-muted-foreground px-1 text-xs font-medium">
+          Project
+        </div>
 
-        <div className="mt-4 mb-1 px-1">
+        <div className="mt-1 mb-1 px-1">
           <ProjectSwitcher
             projects={projects}
             active={activeProject}
@@ -220,37 +227,41 @@ export function Sidebar({
           />
         </div>
 
-        {projectItems.map((item) => {
-          let active = item.href
-            ? isActiveRoute(pathname, item.href, allHrefs)
-            : false;
-          // On a shared /compute/[id] detail page, override the URL-based
-          // guess with the section the page itself announced.
-          if (onInstanceDetail && detailSection) {
-            active =
-              (item.label === "GPU compute" && detailSection === "gpu") ||
-              (item.label === "CPU compute" && detailSection === "cpu");
-          }
-          return <NavLink key={item.label} {...item} active={active} />;
-        })}
+        <div className="mt-2 flex flex-col gap-1">
+          {projectItems.map((item) => {
+            let active = item.href
+              ? isActiveRoute(pathname, item.href, allHrefs)
+              : false;
+            // On a shared /compute/[id] detail page, override the URL-based
+            // guess with the section the page itself announced.
+            if (onInstanceDetail && detailSection) {
+              active =
+                (item.label === "GPU compute" && detailSection === "gpu") ||
+                (item.label === "CPU compute" && detailSection === "cpu");
+            }
+            return <NavLink key={item.label} {...item} active={active} />;
+          })}
+        </div>
 
         <div className="hairline-b my-3 border-border" />
 
-        <NavGroup
-          label="Billing & Cost Management"
-          icon={CreditCard}
-          items={billingChildren}
-          pathname={pathname}
-          siblings={allHrefs}
-        />
-
-        {accountItems.map((item) => (
-          <NavLink
-            key={item.label}
-            {...item}
-            active={item.href ? isActiveRoute(pathname, item.href, allHrefs) : false}
+        <div className="flex flex-col gap-1">
+          <NavGroup
+            label="Billing & Cost Management"
+            icon={CreditCard}
+            items={billingChildren}
+            pathname={pathname}
+            siblings={allHrefs}
           />
-        ))}
+
+          {accountItems.map((item) => (
+            <NavLink
+              key={item.label}
+              {...item}
+              active={item.href ? isActiveRoute(pathname, item.href, allHrefs) : false}
+            />
+          ))}
+        </div>
       </nav>
 
       <div className="hairline-t border-border px-2 py-2">
@@ -299,7 +310,7 @@ function NavLink({
   );
 
   const className = cn(
-    "flex h-7 items-center gap-2 rounded px-2 text-sm",
+    "flex h-7 items-center gap-2 rounded px-2 text-xs",
     active
       ? "bg-muted text-foreground font-medium"
       : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -354,7 +365,7 @@ function NavGroup({
       <button
         onClick={() => setUserOpen((v) => !v)}
         className={cn(
-          "flex h-7 w-full items-center gap-2 rounded px-2 text-sm",
+          "flex h-7 w-full items-center gap-2 rounded px-2 text-xs",
           anyActive
             ? "text-foreground font-medium"
             : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -380,7 +391,7 @@ function NavGroup({
               className={cn(
                 // Indented under the parent, with a rail to read as a
                 // subtree rather than a sibling list.
-                "hairline-l ml-3 flex h-7 items-center gap-2 border-border pl-3 pr-2 text-sm",
+                "hairline-l ml-3 flex h-7 items-center gap-2 border-border pl-3 pr-2 text-xs",
                 childActive(child.href)
                   ? "text-foreground font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/60",

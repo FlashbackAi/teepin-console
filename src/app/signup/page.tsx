@@ -38,7 +38,9 @@ export default function SignupPage() {
         onSuccess: () =>
           login.mutate(
             { email, password },
-            { onSuccess: () => router.push("/compute") },
+            // See login/page.tsx's identical comment: root decides where
+            // a signed-in customer lands, in one place.
+            { onSuccess: () => router.push("/") },
           ),
       },
     );

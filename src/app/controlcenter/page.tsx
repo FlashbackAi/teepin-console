@@ -29,7 +29,9 @@ export default function ControlCenterAccountsPage() {
 
   return (
     <>
-      <PageHeader breadcrumb={["Control centre", "Accounts"]} />
+      <PageHeader
+        breadcrumb={[{ label: "Control centre", href: "/controlcenter" }, "Accounts"]}
+      />
 
       <div className="p-6">
         <Card>

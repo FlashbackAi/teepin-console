@@ -7,7 +7,11 @@ import { activeProject as activeProjectHeader } from "./api/client";
 import { keys as queryKeys, useProjects } from "./api/hooks";
 import type { Project } from "./api/types";
 
-const ACTIVE_PROJECT_KEY = "teepin-active-project";
+// Exported so the root page can read the last-active project directly, for
+// a synchronous redirect straight to its dashboard — bypassing this file's
+// own React-Query-backed hook, which needs the project list to have loaded
+// first.
+export const ACTIVE_PROJECT_KEY = "teepin-active-project";
 
 /**
  * The selected project ID, shared across every component.

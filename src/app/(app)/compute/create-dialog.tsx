@@ -217,10 +217,18 @@ export function CreateInstanceDialog({ onClose }: { onClose: () => void }) {
         )}
 
         {noCapacity ? (
-          <p className="text-muted-foreground text-xs">
-            No GPU capacity is available right now. Existing instances are
-            unaffected.
-          </p>
+          // Matches <Field label="GPU"> below's own shape (label + one line
+          // of body text) rather than a lone floating paragraph — without
+          // the label, this state visually collapsed to less height than
+          // the real GPU select it stands in for, reading as a stray gap
+          // before the vCPU/memory row underneath it.
+          <div className="flex flex-col gap-1.5">
+            <span className="text-foreground text-xs font-medium">GPU</span>
+            <p className="text-muted-foreground text-xs">
+              No GPU capacity is available right now. Existing instances are
+              unaffected.
+            </p>
+          </div>
         ) : (
           <Field label="GPU" htmlFor="vram">
             <Select

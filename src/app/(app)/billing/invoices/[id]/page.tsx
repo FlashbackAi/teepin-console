@@ -45,7 +45,9 @@ export default function InvoiceDetailPage({
   if (invoice.isLoading) {
     return (
       <>
-        <PageHeader breadcrumb={["Billing", "Invoices", "…"]} />
+        <PageHeader
+          breadcrumb={[{ label: "Billing", href: "/billing" }, "Invoices", "…"]}
+        />
         <Loading className="py-16" />
       </>
     );
@@ -54,7 +56,9 @@ export default function InvoiceDetailPage({
   if (invoice.isError || !invoice.data) {
     return (
       <>
-        <PageHeader breadcrumb={["Billing", "Invoices", "Not found"]} />
+        <PageHeader
+          breadcrumb={[{ label: "Billing", href: "/billing" }, "Invoices", "Not found"]}
+        />
         <div className="p-6">
           <Card>
             <EmptyState
@@ -83,7 +87,7 @@ export default function InvoiceDetailPage({
   return (
     <>
       <PageHeader
-        breadcrumb={["Billing", "Invoices", inv.invoice_number]}
+        breadcrumb={[{ label: "Billing", href: "/billing" }, "Invoices", inv.invoice_number]}
         action={inv.pdf_available ? <DownloadPdfButton invoice={inv} /> : null}
       />
 
