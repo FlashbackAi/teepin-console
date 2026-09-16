@@ -28,11 +28,16 @@ export function Table({
 
 export function THead({
   className,
+  /** false drops the header's own bottom divider — e.g. a table nested
+   *  directly under a row that already ends in its own hairline, where
+   *  keeping both reads as a doubled border rather than two intentional
+   *  separators. */
+  divider = true,
   ...props
-}: React.HTMLAttributes<HTMLTableSectionElement>) {
+}: React.HTMLAttributes<HTMLTableSectionElement> & { divider?: boolean }) {
   return (
     <thead
-      className={cn("hairline-b border-border", className)}
+      className={cn(divider && "hairline-b border-border", className)}
       {...props}
     />
   );

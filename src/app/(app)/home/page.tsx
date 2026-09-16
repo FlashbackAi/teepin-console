@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Check, Settings } from "lucide-react";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { ProjectActionsMenu } from "@/components/shell/project-actions-menu";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -155,7 +156,7 @@ function Overview({
               <span className="inline-flex items-center gap-2">
                 At a glance
                 <span className="text-muted-foreground font-normal">
-                  — {project.name}
+                  - {project.name}
                 </span>
                 <EnvironmentBadge project={project} />
               </span>
@@ -260,20 +261,19 @@ function ProjectsPreview({
                   {result?.isLoading ? "—" : runningCount}
                 </TD>
                 <TD className="text-right">
-                  {isActive ? (
-                    <span className="text-muted-foreground inline-flex items-center justify-end gap-1 text-xs">
-                      <Check className="h-3.5 w-3.5" />
-                      Current
-                    </span>
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => onSelect(project.id)}
-                    >
-                      Switch to
-                    </Button>
-                  )}
+                  <span className="inline-flex items-center justify-end gap-2">
+                    {isActive && (
+                      <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                        <Check className="h-3.5 w-3.5" />
+                        Current
+                      </span>
+                    )}
+                    <ProjectActionsMenu
+                      projectId={project.id}
+                      isActive={isActive}
+                      onSwitch={onSelect}
+                    />
+                  </span>
                 </TD>
               </TR>
             );
@@ -312,7 +312,7 @@ function CostSnapshot({
           <span className="inline-flex items-center gap-2">
             Cost snapshot
             <span className="text-muted-foreground font-normal">
-              — this period
+              - this period
             </span>
           </span>
         </CardTitle>

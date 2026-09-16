@@ -201,25 +201,31 @@ export function Sidebar({
         <Link href="/home" className="mb-3 block w-fit">
           <Wordmark height={32} />
         </Link>
-        <div className="text-foreground truncate text-sm font-medium">
+        <div className="text-foreground truncate text-xs font-medium">
           {accountName}
         </div>
-        <div className="identifier text-muted-foreground mt-0.5">
+        <div className="identifier text-muted-foreground mt-0.5 text-xs">
           {formatAccountNumber(accountNumber)}
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
+      {/* No horizontal padding on the container itself — every row below
+          (including this one's own "Project" label and switcher) sets its
+          OWN left/right padding to px-3, matching the identity block above
+          exactly, rather than stacking a container inset on top of a
+          per-item one, which is what previously left nav rows sitting a
+          few pixels further right than the account name above them. */}
+      <nav className="flex-1 overflow-y-auto py-3">
         {/* A plain label, not a nav link — the switcher right below it
             already covers "see other projects" (its own dropdown lists
             them, plus "New project"), so a separate clickable "Projects"
             tab pointing at the same list page was a redundant second way
             to do the same thing. */}
-        <div className="text-muted-foreground px-1 text-xs font-medium">
+        <div className="text-muted-foreground px-3 text-xs font-medium">
           Project
         </div>
 
-        <div className="mt-1 mb-1 px-1">
+        <div className="mt-1 mb-1 px-3">
           <ProjectSwitcher
             projects={projects}
             active={activeProject}
@@ -227,7 +233,7 @@ export function Sidebar({
           />
         </div>
 
-        <div className="mt-2 flex flex-col gap-1">
+        <div className="mt-2 flex flex-col gap-2">
           {projectItems.map((item) => {
             let active = item.href
               ? isActiveRoute(pathname, item.href, allHrefs)
@@ -245,7 +251,7 @@ export function Sidebar({
 
         <div className="hairline-b my-3 border-border" />
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2">
           <NavGroup
             label="Billing & Cost Management"
             icon={CreditCard}
@@ -264,19 +270,19 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="hairline-t border-border px-2 py-2">
+      <div className="hairline-t border-border py-2">
         <a
           href="https://docs.teepin.com"
           target="_blank"
           rel="noreferrer"
-          className="text-muted-foreground hover:text-foreground flex h-7 items-center gap-2 rounded px-2 text-xs"
+          className="text-muted-foreground hover:text-foreground flex h-7 items-center gap-2 rounded px-3 text-xs"
         >
           <BookOpen className="h-3.5 w-3.5" />
           Docs
         </a>
         <a
           href="mailto:support@teepin.com"
-          className="text-muted-foreground hover:text-foreground flex h-7 items-center gap-2 rounded px-2 text-xs"
+          className="text-muted-foreground hover:text-foreground flex h-7 items-center gap-2 rounded px-3 text-xs"
         >
           <LifeBuoy className="h-3.5 w-3.5" />
           Support
@@ -310,7 +316,7 @@ function NavLink({
   );
 
   const className = cn(
-    "flex h-7 items-center gap-2 rounded px-2 text-xs",
+    "flex h-7 items-center gap-2 rounded px-3 text-xs",
     active
       ? "bg-muted text-foreground font-medium"
       : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -365,7 +371,7 @@ function NavGroup({
       <button
         onClick={() => setUserOpen((v) => !v)}
         className={cn(
-          "flex h-7 w-full items-center gap-2 rounded px-2 text-xs",
+          "flex h-7 w-full items-center gap-2 rounded px-3 text-xs",
           anyActive
             ? "text-foreground font-medium"
             : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -466,7 +472,7 @@ function SignOut() {
   return (
     <button
       onClick={signOut}
-      className="text-muted-foreground hover:text-foreground flex h-7 w-full items-center gap-2 rounded px-2 text-xs"
+      className="text-muted-foreground hover:text-foreground flex h-7 w-full items-center gap-2 rounded px-3 text-xs"
     >
       <LogOut className="h-3.5 w-3.5" />
       Sign out
@@ -480,7 +486,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
-      className="text-muted-foreground hover:text-foreground flex h-7 w-full items-center gap-2 rounded px-2 text-xs"
+      className="text-muted-foreground hover:text-foreground flex h-7 w-full items-center gap-2 rounded px-3 text-xs"
     >
       {resolved === "dark" ? (
         <Sun className="h-3.5 w-3.5" />

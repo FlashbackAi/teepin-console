@@ -63,15 +63,28 @@ export function Stat({
   label,
   value,
   hint,
+  size = "default",
 }: {
   label: string;
   value: React.ReactNode;
   hint?: string;
+  /** "lg" for the one headline figure in a stat row — e.g. total spend on
+   *  a billing page — that should visually lead the others rather than
+   *  read as one of an equal set. Emphasis stays typographic (size and
+   *  weight), matching the rest of the console's "unmissable through
+   *  visual weight, not colour" convention (see Tabs' own doc comment) —
+   *  no accent colour is introduced. */
+  size?: "default" | "lg";
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-muted-foreground text-xs">{label}</span>
-      <span className="tabular text-foreground text-xl font-medium">
+      <span
+        className={cn(
+          "tabular text-foreground",
+          size === "lg" ? "text-3xl font-semibold" : "text-xl font-medium",
+        )}
+      >
         {value}
       </span>
       {hint && (

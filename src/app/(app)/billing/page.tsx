@@ -70,7 +70,7 @@ export default function BillingPage() {
         onChange={setTab}
         tabs={[
           { id: "overview", label: "Overview" },
-          { id: "usage", label: "Usage" },
+          { id: "usage", label: "Usage by project" },
           {
             id: "invoices",
             label: "Invoices",
@@ -129,6 +129,7 @@ function OverviewTab({
           label="Month to date"
           value={billing ? formatCost(billing.total_cost) : "—"}
           hint={period}
+          size="lg"
         />
         {hasCredit && (
           <Stat
@@ -159,10 +160,14 @@ function OverviewTab({
       </section>
 
       {!billing?.projects.length ? null : (
+        // No CardHeader/title here — the stats above already say "this
+        // period", and a "Usage by project" row on top of a table whose
+        // own columns are Project/Cost was a description occupying a
+        // whole row for something the table already says on its own.
+        // The Usage tab (below) keeps its own title: there each project's
+        // block is followed by a further per-service breakdown, so the
+        // name is load-bearing, not decorative.
         <Card>
-          <CardHeader>
-            <CardTitle>Usage by project</CardTitle>
-          </CardHeader>
           <Table>
             <THead>
               <TR>
@@ -195,11 +200,14 @@ function UsageTab({
   const data = billing.data;
 
   return (
+    // No CardHeader here either — the tab itself is now labelled "Usage
+    // by project" (see the Tabs config above), so repeating that exact
+    // phrase as a title directly under it was the redundant description
+    // from the Overview fix again, plus its own hairline sat right above
+    // each project's Table hairline with only a thin name/cost row
+    // between them — two dividers bracketing one line of content, which
+    // read as a doubled border rather than two intentional separators.
     <Card>
-      <CardHeader>
-        <CardTitle>Usage by project</CardTitle>
-      </CardHeader>
-
       {billing.isLoading ? (
         <Loading className="px-4 py-16" />
       ) : !data?.projects.length ? (
@@ -220,7 +228,11 @@ function UsageTab({
                 </span>
               </div>
               <Table>
-                <THead>
+                {/* No divider — the project name/cost line right above
+                    already ends the "header" visually; a second hairline
+                    a few pixels below it read as a doubled border rather
+                    than two intentional separators. */}
+                <THead divider={false}>
                   <TR>
                     <TH>Service</TH>
                     <TH className="text-right">Quantity</TH>
@@ -229,7 +241,7 @@ function UsageTab({
                   </TR>
                 </THead>
                 <TBody>
-                  {project.services.map((service) => (
+                  {project.services.map((service, i) => (
                     // Keyed by service+unit, not service alone: the
                     // backend groups usage by (project, service label,
                     // unit) — pkg/billing.GetAccountSummary's own SQL —
@@ -242,7 +254,22 @@ function UsageTab({
                     // the backend actually groups by is what makes this
                     // safe for any future unrecognized resource_type,
                     // not just the ones fixed today.
-                    <TR key={`${service.service}-${service.unit}`}>
+                    <TR
+                      key={`${service.service}-${service.unit}`}
+                      // TR's own last:border-0 targets :last-child of this
+                      // <tbody> — which this IS — but a browser's border
+                      // conflict-resolution under border-collapse can still
+                      // render a row-level border here inconsistently. An
+                      // inline style is unambiguous regardless: it always
+                      // wins over any stylesheet rule, so the true last row
+                      // never carries a trailing line, whatever the cascade
+                      // does elsewhere.
+                      style={
+                        i === project.services.length - 1
+                          ? { borderBottomWidth: 0 }
+                          : undefined
+                      }
+                    >
                       <TD>{service.service}</TD>
                       <TD
                         className="tabular text-muted-foreground text-right"

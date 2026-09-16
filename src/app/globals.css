@@ -47,11 +47,19 @@
   /* Light — a soft blue-grey canvas, not full white (audit feedback:
      a pure-white page reads as glare next to every card sitting on it).
      Hue 217 matches --info below, the app's one existing blue accent, so
-     the tint reads as intentional rather than a mismatched grey. Cards
-     stay near-white so they still lift off the canvas. */
-  --background: 217 33% 97%;
-  --card: 0 0% 100%;
-  --muted: 217 20% 94%;
+     the tint reads as intentional rather than a mismatched grey. Card was
+     originally left pure white for contrast, but that read as a stark
+     white rectangle sitting on the grey canvas instead of a surface of
+     the same material — it now carries the same hue, just lighter than
+     both --background and --muted, so the three stay ordered
+     (muted < background < card) without card breaking back to white.
+     Two earlier passes (97%/94%/100%, then 93%/89%/97%) both still read
+     as white on an actual screen — this pass drops lightness further
+     still, to the point the grey is unmistakable rather than a value
+     that only shows up in a colour picker. */
+  --background: 217 22% 89%;
+  --card: 217 18% 95%;
+  --muted: 217 18% 85%;
   --foreground: 0 0% 7%;
   --muted-foreground: 0 0% 45%;
   --border: 0 0% 90%;
