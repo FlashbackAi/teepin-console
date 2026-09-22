@@ -9,7 +9,15 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { Loading } from "@/components/ui/loading";
-import { EmptyState, TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
+import {
+  EmptyState,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+} from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import {
   errorMessage,
@@ -124,6 +132,7 @@ export function ApiKeysPanel({ projectId }: { projectId: string }) {
                   </TH>
                   <TH>Name</TH>
                   <TH>Key</TH>
+                  <TH>Access</TH>
                   <TH>Last used</TH>
                   <TH>Created</TH>
                   <TH />
@@ -149,6 +158,9 @@ export function ApiKeysPanel({ projectId }: { projectId: string }) {
                       <span className="identifier text-muted-foreground">
                         {key.key_prefix}…
                       </span>
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {describeAccess(key.scopes)}
                     </TD>
                     <TD className="text-muted-foreground">
                       {key.last_used_at ? (
@@ -227,6 +239,8 @@ function CreateKeyDialog({
 }) {
   const create = useCreateApiKey(projectId);
   const [name, setName] = useState("");
+  const [manage, setManage] = useState(true);
+  const [inference, setInference] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
 
   // Once created, the dialog becomes a one-time reveal — the full key is
@@ -254,7 +268,7 @@ function CreateKeyDialog({
     );
   }
 
-  const valid = name.trim() !== "";
+  const valid = name.trim() !== "" && (manage || inference);
 
   return (
     <Dialog
@@ -272,7 +286,7 @@ function CreateKeyDialog({
             disabled={!valid || create.isPending}
             onClick={() =>
               create.mutate(
-                { name: name.trim() },
+                { name: name.trim(), scopes: buildScopes(manage, inference) },
                 { onSuccess: (data) => setSecret(data.key) },
               )
             }
@@ -295,6 +309,40 @@ function CreateKeyDialog({
           onChange={(e) => setName(e.target.value)}
         />
       </Field>
+
+      <fieldset className="mt-4 flex flex-col gap-2">
+        <legend className="text-muted-foreground mb-1 text-xs">
+          Permissions
+        </legend>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="accent-foreground mt-0.5"
+            checked={manage}
+            onChange={(e) => setManage(e.target.checked)}
+          />
+          <span>
+            Manage project resources
+            <span className="text-muted-foreground block text-xs">
+              Create and manage instances, storage and builds.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="accent-foreground mt-0.5"
+            checked={inference}
+            onChange={(e) => setInference(e.target.checked)}
+          />
+          <span>
+            Call Teepin Inference models
+            <span className="text-muted-foreground block text-xs">
+              Use the chat completions API. Billed per token.
+            </span>
+          </span>
+        </label>
+      </fieldset>
     </Dialog>
   );
 }
@@ -322,9 +370,7 @@ function RevokeKeyDialog({
             variant="destructive"
             size="sm"
             disabled={revoke.isPending}
-            onClick={() =>
-              revoke.mutate(apiKey.id, { onSuccess: onClose })
-            }
+            onClick={() => revoke.mutate(apiKey.id, { onSuccess: onClose })}
           >
             {revoke.isPending ? "Revoking…" : "Revoke key"}
           </Button>
@@ -333,11 +379,10 @@ function RevokeKeyDialog({
     >
       <div className="flex flex-col gap-3">
         <p className="text-muted-foreground text-sm">
-          Revoking{" "}
-          <span className="text-foreground">{apiKey.name}</span> (
+          Revoking <span className="text-foreground">{apiKey.name}</span> (
           <span className="identifier">{apiKey.key_prefix}…</span>) takes effect
-          immediately. Any CLI, SDK, or service using it will start getting 401s.
-          This cannot be undone.
+          immediately. Any CLI, SDK, or service using it will start getting
+          401s. This cannot be undone.
         </p>
         {revoke.isError && (
           <p className="text-destructive text-xs">
@@ -375,12 +420,12 @@ function BulkRevokeDialog({
     setPending(true);
     setFailed(null);
     const results = await Promise.allSettled(
-      apiKeys.map((k) =>
-        api.revokeApiKey(projectId, k.id).then(() => k.id),
-      ),
+      apiKeys.map((k) => api.revokeApiKey(projectId, k.id).then(() => k.id)),
     );
     const revoked = results
-      .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+      .filter(
+        (r): r is PromiseFulfilledResult<string> => r.status === "fulfilled",
+      )
       .map((r) => r.value);
     const failures = results.length - revoked.length;
 
@@ -448,4 +493,21 @@ function BulkRevokeDialog({
       </div>
     </Dialog>
   );
+}
+
+/** Scopes a key is created with, from the two permission choices. */
+function buildScopes(manage: boolean, inference: boolean): string[] {
+  const scopes: string[] = [];
+  if (manage) scopes.push("instances:read", "instances:write");
+  if (inference) scopes.push("inference:invoke");
+  return scopes;
+}
+
+/** Plain-language summary of what a key may do. */
+function describeAccess(scopes: string[] | undefined): string {
+  const list = scopes ?? [];
+  const parts: string[] = [];
+  if (list.some((s) => s.startsWith("instances:"))) parts.push("Resources");
+  if (list.includes("inference:invoke")) parts.push("Inference");
+  return parts.length ? parts.join(" + ") : "Resources";
 }

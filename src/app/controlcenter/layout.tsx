@@ -122,6 +122,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   const items = [
     { label: "Accounts", href: "/controlcenter" },
     { label: "Nodes", href: "/controlcenter/nodes" },
+    { label: "Inference", href: "/controlcenter/inference" },
+    { label: "Kumbha", href: "/controlcenter/kumbha" },
     { label: "Pricing", href: "/controlcenter/pricing" },
   ];
 

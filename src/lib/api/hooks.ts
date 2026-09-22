@@ -54,7 +54,8 @@ export const keys = {
   instancesForProject: (projectId: string) =>
     ["instances-by-project", projectId] as const,
   instance: (id: string) => ["instance", id] as const,
-  instanceMetrics: (id: string, since: string) => ["instance-metrics", id, since] as const,
+  instanceMetrics: (id: string, since: string) =>
+    ["instance-metrics", id, since] as const,
   instanceTypes: ["instance-types"] as const,
   billing: ["billing"] as const,
   invoices: ["invoices"] as const,
@@ -62,6 +63,7 @@ export const keys = {
   paymentMethods: ["payment-methods"] as const,
   creditBalance: ["credit-balance"] as const,
   kumbhaSessions: ["kumbha-sessions"] as const,
+  inferenceModels: ["inference-models"] as const,
   storageBuckets: ["storage-buckets"] as const,
   storageBucket: (name: string) => ["storage-bucket", name] as const,
   // Deliberately a 3-element key (bucket, prefix) rather than folding
@@ -119,6 +121,17 @@ export function useProjects() {
   });
 }
 
+/** Public status/marketing globe data — no session required, safe to call
+ *  from a page outside the authenticated app shell. See api.publicNodeLocations'
+ *  own comment for why this carries no customer/operator data at all. */
+export function usePublicNodeLocations() {
+  return useQuery({
+    queryKey: ["public", "node-locations"],
+    queryFn: api.publicNodeLocations,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useCreateProject() {
   const client = useQueryClient();
   return useMutation({
@@ -156,7 +169,8 @@ export function useApiKeys(projectId: string | undefined) {
 export function useCreateApiKey(projectId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string }) => api.createApiKey(projectId, body),
+    mutationFn: (body: { name: string; scopes?: string[] }) =>
+      api.createApiKey(projectId, body),
     onSuccess: () =>
       client.invalidateQueries({ queryKey: keys.apiKeys(projectId) }),
   });
@@ -203,8 +217,7 @@ export function useInstances(enabled = true) {
     queryKey: keys.instances,
     queryFn: () => api.listInstances(),
     enabled,
-    refetchInterval: (query) =>
-      pollWhileSettling(query.state.data?.instances),
+    refetchInterval: (query) => pollWhileSettling(query.state.data?.instances),
   });
 }
 
@@ -389,8 +402,7 @@ export function useRemovePaymentMethod() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.removePaymentMethod(id),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: keys.paymentMethods }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.paymentMethods }),
   });
 }
 
@@ -398,8 +410,7 @@ export function useSetDefaultPaymentMethod() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.setDefaultPaymentMethod(id),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: keys.paymentMethods }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.paymentMethods }),
   });
 }
 
@@ -451,7 +462,8 @@ export function useCreateKumbhaSession() {
   return useMutation({
     mutationFn: (body: { budget: number; label?: string; prompt?: string }) =>
       api.createKumbhaSession(body),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
   });
 }
 
@@ -473,7 +485,8 @@ export function useDeleteKumbhaSessions() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (ids: string[]) => api.deleteKumbhaSessions(ids),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: keys.kumbhaSessions }),
   });
 }
 
@@ -544,7 +557,8 @@ export function useStopKumbhaAgent(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => api.stopKumbhaAgent(id),
-    onSuccess: () => client.invalidateQueries({ queryKey: kumbhaSessionKey(id) }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: kumbhaSessionKey(id) }),
   });
 }
 
@@ -598,7 +612,8 @@ export function useKumbhaWorkspace(
     queryKey: kumbhaWorkspaceKey(id, version),
     queryFn: () => api.getKumbhaWorkspace(id, version),
     enabled: enabled && Boolean(id),
-    refetchInterval: version === undefined && sessionStatus === "open" ? 4_000 : false,
+    refetchInterval:
+      version === undefined && sessionStatus === "open" ? 4_000 : false,
     // A build that hasn't saved anything yet is not an error — the empty
     // tree state renders from `isError` staying false with `data`
     // undefined only on the FIRST load; a 404 here specifically means "no
@@ -627,7 +642,9 @@ export function useSaveKumbhaWorkspace(id: string) {
     }) => api.saveKumbhaWorkspace(id, vars.files, vars.skipped),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: kumbhaWorkspaceKey(id) });
-      void client.invalidateQueries({ queryKey: kumbhaWorkspaceVersionsKey(id) });
+      void client.invalidateQueries({
+        queryKey: kumbhaWorkspaceVersionsKey(id),
+      });
     },
   });
 }
@@ -641,7 +658,9 @@ export function useRollbackKumbhaWorkspace(id: string) {
     mutationFn: (version: number) => api.rollbackKumbhaWorkspace(id, version),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: kumbhaWorkspaceKey(id) });
-      void client.invalidateQueries({ queryKey: kumbhaWorkspaceVersionsKey(id) });
+      void client.invalidateQueries({
+        queryKey: kumbhaWorkspaceVersionsKey(id),
+      });
     },
   });
 }
@@ -662,7 +681,8 @@ export function useCreateBucket() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => api.storage.createBucket(name),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.storageBuckets }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: keys.storageBuckets }),
   });
 }
 
@@ -670,7 +690,8 @@ export function useDeleteBucket() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => api.storage.deleteBucket(name),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.storageBuckets }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: keys.storageBuckets }),
   });
 }
 
@@ -729,7 +750,8 @@ export function useDeleteObjects(bucket: string) {
 export function useCreateFolder(bucket: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (key: string) => api.storage.uploadObject(bucket, key, new File([], "")),
+    mutationFn: (key: string) =>
+      api.storage.uploadObject(bucket, key, new File([], "")),
     onSuccess: () =>
       client.invalidateQueries({ queryKey: ["storage-objects", bucket] }),
   });
@@ -777,4 +799,12 @@ export function errorMessage(error: unknown): string {
   }
   if (error instanceof Error) return error.message;
   return "Something went wrong.";
+}
+
+export function useInferenceModels() {
+  return useQuery({
+    queryKey: keys.inferenceModels,
+    queryFn: api.inference.listModels,
+    retry: false,
+  });
 }

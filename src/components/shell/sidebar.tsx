@@ -13,6 +13,7 @@ import {
   Moon,
   Package,
   Settings,
+  Sparkles,
   Sun,
   BookOpen,
   User,
@@ -154,12 +155,15 @@ export function Sidebar({
       meta: cpuRunning ? String(cpuRunning) : undefined,
     },
     { label: "Storage", href: "/storage", icon: Database },
+    { label: "Inference", href: "/inference", icon: Sparkles },
     { label: "Registry", href: "/registry", icon: Package },
     // Settings belong to the project being viewed, so the link carries
     // its ID rather than pointing at a page that has to guess.
     {
       label: "Project settings",
-      href: activeProject ? `/projects/${activeProject.id}/settings` : undefined,
+      href: activeProject
+        ? `/projects/${activeProject.id}/settings`
+        : undefined,
       icon: Settings,
     },
   ];
@@ -264,7 +268,9 @@ export function Sidebar({
             <NavLink
               key={item.label}
               {...item}
-              active={item.href ? isActiveRoute(pathname, item.href, allHrefs) : false}
+              active={
+                item.href ? isActiveRoute(pathname, item.href, allHrefs) : false
+              }
             />
           ))}
         </div>
@@ -320,7 +326,8 @@ function NavLink({
     active
       ? "bg-muted text-foreground font-medium"
       : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
-    soon && "cursor-default opacity-50 hover:bg-transparent hover:text-muted-foreground",
+    soon &&
+      "cursor-default opacity-50 hover:bg-transparent hover:text-muted-foreground",
   );
 
   if (!href || soon) {

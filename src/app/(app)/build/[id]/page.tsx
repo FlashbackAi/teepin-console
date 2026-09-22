@@ -130,18 +130,30 @@ export default function BuildSessionPage({
 
         // StreamLogs has no way to resume from a checkpoint — every fresh
         // connection re-sends the pod's ENTIRE log history from the start,
-        // then follows live. Reset here (not just on the very first
-        // connect) so a reconnect replaces that replay instead of
-        // appending a second copy of everything already shown — the
-        // "same messages repeating" bug this line exists to fix
-        // (found live 2026-08-23, introduced by the reconnect logic
-        // itself: every reconnect was appending a full duplicate history).
-        setEvents([]);
-
+        // then follows live, which used to mean clearing `events` to []
+        // on every reconnect so the replay didn't append a duplicate copy
+        // of everything already shown. That fixed the duplication but
+        // traded it for a worse symptom: the whole feed visibly went
+        // blank and rebuilt itself from scratch on every reconnect (found
+        // live 2026-09-22 — a session's WebSocket reconnects surprisingly
+        // often over a long build, each one flashing the feed empty then
+        // refilling it, which read as "flickering and loading multiple
+        // times").
+        //
+        // Fix: never let the visible list get SHORTER. Buffer the new
+        // connection's replay locally and only adopt it once it has
+        // caught back up to (or passed) what was already on screen — the
+        // customer keeps looking at real, stable content the whole time,
+        // and the feed only ever grows or holds still, never blanks.
+        let replay: KumbhaEvent[] = [];
         const socket = new KumbhaEventSocket();
         socketRef.current = socket;
-        socket.onEvent = (event) =>
-          setEvents((prev) => (cancelled ? prev : [...prev, event]));
+        socket.onEvent = (event) => {
+          if (cancelled) return;
+          replay = [...replay, event];
+          const caughtUp = replay;
+          setEvents((prev) => (caughtUp.length >= prev.length ? caughtUp : prev));
+        };
         // The agent's own stream ending — "closed" — is a genuine
         // terminal state (the agent finished, or the session ended)
         // and must NOT retry: there is nothing left to reconnect to.

@@ -2,11 +2,16 @@ import { ApiError } from "./client";
 import type {
   Account,
   CreditTransaction,
+  InferenceModel,
   Invoice,
   InvoiceChargeState,
+  KumbhaCandidateInput,
+  KumbhaCandidateView,
+  KumbhaRouteView,
   Node,
   NodeCapacity,
   NodeMetricSample,
+  NodeServiceRecord,
   Pricing,
   Project,
 } from "./types";
@@ -24,8 +29,7 @@ import type {
  * for a stray token to sit for months than a customer's.
  */
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://api.teepin.com";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.teepin.com";
 
 const ADMIN_TOKEN_KEY = "teepin-admin-token";
 
@@ -150,10 +154,10 @@ export const admin = {
     accountId: string,
     body: { period_start: string; period_end: string },
   ) =>
-    adminRequest<Invoice>(
-      `/v1/admin/accounts/${accountId}/usage-invoices`,
-      { method: "POST", body },
-    ),
+    adminRequest<Invoice>(`/v1/admin/accounts/${accountId}/usage-invoices`, {
+      method: "POST",
+      body,
+    }),
 
   /** Grants operator credit to an account. amount is capped server-side;
    *  reason is required (an unexplained credit is a fraud signal). */
@@ -202,8 +206,7 @@ export const admin = {
       `/v1/admin/invoices/${invoiceId}/charge-state`,
     ),
 
-  getPricing: () =>
-    adminRequest<Pricing>("/v1/admin/pricing"),
+  getPricing: () => adminRequest<Pricing>("/v1/admin/pricing"),
 
   updatePricing: (vramPricePerGBHour: number) =>
     adminRequest<Pricing>("/v1/admin/pricing", {
@@ -217,8 +220,7 @@ export const admin = {
   updateCPUPricing: (body: {
     cpu_price_per_core_hour: number;
     memory_price_per_gb_hour: number;
-  }) =>
-    adminRequest<Pricing>("/v1/admin/pricing/cpu", { method: "PUT", body }),
+  }) => adminRequest<Pricing>("/v1/admin/pricing/cpu", { method: "PUT", body }),
 
   /** P-core/E-core rates for a home-node instance placed with a detected
    *  split (see cmd/teepin-hostprobe). cpu_price_per_core_hour above
@@ -242,8 +244,7 @@ export const admin = {
   updateLLMPricing: (body: {
     llm_price_per_million_input: number;
     llm_price_per_million_output: number;
-  }) =>
-    adminRequest<Pricing>("/v1/admin/pricing/llm", { method: "PUT", body }),
+  }) => adminRequest<Pricing>("/v1/admin/pricing/llm", { method: "PUT", body }),
 
   // --- Nodes (home-compute pilot) -----------------------------------------
   // These routes exist only when the control plane has HOME_COMPUTE_ENABLED;
@@ -262,16 +263,33 @@ export const admin = {
     nodeId: string,
     body: { cpu_cores: number; memory_gb: number },
   ) =>
-    adminRequest<{ message: string }>(
-      `/v1/admin/nodes/${nodeId}/reservation`,
-      { method: "PUT", body },
-    ),
+    adminRequest<{ message: string }>(`/v1/admin/nodes/${nodeId}/reservation`, {
+      method: "PUT",
+      body,
+    }),
 
   /** Rename a node (operator label). */
   renameNode: (nodeId: string, nodeName: string) =>
     adminRequest<{ message: string }>(`/v1/admin/nodes/${nodeId}`, {
       method: "PATCH",
       body: { node_name: nodeName },
+    }),
+
+  /** Set a node's operator-provided location — manual only, never derived
+   *  from IP geolocation. latitude/longitude null clears the coordinate
+   *  (label may still stand alone, e.g. "Bengaluru, India" with no pin);
+   *  both non-null must be a valid lat/lng, enforced server-side too. */
+  setNodeLocation: (
+    nodeId: string,
+    body: {
+      latitude: number | null;
+      longitude: number | null;
+      location_label: string;
+    },
+  ) =>
+    adminRequest<{ message: string }>(`/v1/admin/nodes/${nodeId}/location`, {
+      method: "PUT",
+      body,
     }),
 
   /** Delete a node. 409 if it still has active instances (terminate them or
@@ -311,4 +329,172 @@ export const admin = {
     adminRequest<{ node_id: string; samples: NodeMetricSample[] }>(
       `/v1/admin/nodes/${nodeId}/metrics${since ? `?since=${encodeURIComponent(since)}` : ""}`,
     ),
+
+  // --- Teepin Inference: model catalog -----------------------------------
+  // A model_route (e.g. "teepin/qwen3-omni-7b") is always sent as a QUERY
+  // parameter, never a path segment — it contains a literal "/", which
+  // would collide with a single path segment. encodeURIComponent still
+  // matters here even inside a query value, since the route itself has a
+  // "/" that would otherwise mangle the querystring's own structure.
+
+  /** Every catalog entry, enabled and disabled alike. */
+  listInferenceModels: () =>
+    adminRequest<{ models: InferenceModel[] }>("/v1/admin/inference/models"),
+
+  /** Registers or updates a model's capabilities/engine. Pricing is a
+   *  separate call (setInferenceModelPricing) so this never resets a price
+   *  already configured. A freshly registered model is NOT enabled unless
+   *  explicitly set — it cannot route traffic until an operator flips it on. */
+  registerInferenceModel: (body: {
+    model_route: string;
+    display_name: string;
+    cost_class: "own" | "frontier";
+    engine: string;
+    context_window?: number;
+    supports_tools?: boolean;
+    supports_vision?: boolean;
+    supports_audio?: boolean;
+    enabled?: boolean;
+  }) =>
+    adminRequest<InferenceModel>("/v1/admin/inference/models", {
+      method: "POST",
+      body,
+    }),
+
+  /** Customer-facing per-million-token rates. Zero is valid ("do not
+   *  charge"). */
+  setInferenceModelPricing: (
+    modelRoute: string,
+    body: { input_price_per_million: number; output_price_per_million: number },
+  ) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/inference/models/pricing?model_route=${encodeURIComponent(modelRoute)}`,
+      { method: "PUT", body },
+    ),
+
+  /** Gates routing without touching pricing/audit history. */
+  setInferenceModelEnabled: (modelRoute: string, enabled: boolean) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/inference/models/enabled?model_route=${encodeURIComponent(modelRoute)}`,
+      { method: "PUT", body: { enabled } },
+    ),
+
+  /** Removes a catalog entry entirely — prefer setInferenceModelEnabled(false)
+   *  for a model that has ever been priced or billed against. */
+  deleteInferenceModel: (modelRoute: string) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/inference/models?model_route=${encodeURIComponent(modelRoute)}`,
+      { method: "DELETE" },
+    ),
+
+  // --- Generic mount/unmount primitive (node_services) --------------------
+  // An inference model server today; a teepin-agent binary update is
+  // meant to reuse these exact same endpoints later, not a separate one.
+
+  /** Every service mounted (or once mounted) on one node. */
+  listNodeServicesForNode: (nodeId: string) =>
+    adminRequest<{ node_services: NodeServiceRecord[] }>(
+      `/v1/admin/node-services?node_id=${encodeURIComponent(nodeId)}`,
+    ),
+
+  /** Records a desired mount. Always creates a new row — two mounts of the
+   *  same kind on one node are legitimately different rows, never conflated. */
+  mountNodeService: (body: {
+    node_id: string;
+    kind: "inference_model" | "agent_binary";
+    config: Record<string, unknown>;
+  }) =>
+    adminRequest<NodeServiceRecord>("/v1/admin/node-services", {
+      method: "POST",
+      body,
+    }),
+
+  /** Sends one prompt through the real gateway path — an operator check that
+   *  a mounted model answers end to end. */
+  inferenceChat: (body: {
+    model_route: string;
+    prompt: string;
+    max_tokens?: number;
+  }) =>
+    adminRequest<{
+      content: string;
+      finish_reason?: string;
+      reasoning?: string;
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      latency_ms: number;
+    }>("/v1/admin/inference/chat", { method: "POST", body }),
+
+  /** Models downloaded onto the node's disk, as its agent last reported.
+   *  `known: false` = the agent does not report a model cache; `online:
+   *  false` = the agent is not connected right now. */
+  listNodeCachedModels: (nodeId: string) =>
+    adminRequest<{
+      models: { repo_id: string; size_bytes: number; in_use: boolean }[];
+      known: boolean;
+      online: boolean;
+    }>(`/v1/admin/nodes/${nodeId}/cached-models`),
+
+  /** Deletes one downloaded model from the node's disk. Refused (409) while a
+   *  mount still uses it. The repo is a query param because it has a slash. */
+  deleteNodeCachedModel: (nodeId: string, repoId: string) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/nodes/${nodeId}/cached-models?repo=${encodeURIComponent(repoId)}`,
+      { method: "DELETE" },
+    ),
+
+  /** Kumbha's configured routes (teepin/fast, teepin/deep, ...) — which
+   *  backend serves each is never shown to a customer, but an operator
+   *  deciding whether to flip one on/off needs exactly that. `enabled: false`
+   *  makes a route behave as if it were never configured (a clean "model not
+   *  found" to any caller). `health` is a live, cost-free connectivity check
+   *  ("unknown" means the backend has no such check, never "down"). */
+  listKumbhaRoutes: () =>
+    adminRequest<{
+      routes: KumbhaRouteView[];
+    }>("/v1/admin/kumbha/routes"),
+
+  /** Turns one route on or off. The route name is a query param (it
+   *  contains a slash, e.g. "teepin/fast"). Applies to the NEXT request that
+   *  resolves the route — sessions already using it are unaffected. */
+  setKumbhaRouteEnabled: (route: string, enabled: boolean) =>
+    adminRequest<{ message: string }>(
+      `/v1/admin/kumbha/routes?route=${encodeURIComponent(route)}`,
+      { method: "PUT", body: { enabled } },
+    ),
+
+  /** Registers a new backend candidate for a route — creates the route
+   *  itself (List will show it) if it didn't already exist. api_key, if
+   *  given, is written to Secrets Manager and never echoed back. Takes
+   *  effect on the very next request that dispatches through this
+   *  candidate — no redeploy. */
+  createKumbhaCandidate: (input: KumbhaCandidateInput) =>
+    adminRequest<{ candidate: KumbhaCandidateView; warning?: string }>(
+      "/v1/admin/kumbha/candidates",
+      { method: "POST", body: input },
+    ),
+
+  /** Edits a candidate's config/priority/enabled state. api_key is
+   *  write-only and rotates the stored key ONLY when non-empty — leave it
+   *  unset to keep the existing key untouched. */
+  updateKumbhaCandidate: (
+    id: string,
+    input: Omit<KumbhaCandidateInput, "route_name">,
+  ) =>
+    adminRequest<{ candidate: KumbhaCandidateView; warning?: string }>(
+      `/v1/admin/kumbha/candidates/${id}`,
+      { method: "PUT", body: input },
+    ),
+
+  deleteKumbhaCandidate: (id: string) =>
+    adminRequest<{ message: string }>(`/v1/admin/kumbha/candidates/${id}`, {
+      method: "DELETE",
+    }),
+
+  /** Flips desired_state to unmounted. The row is kept, never deleted. */
+  unmountNodeService: (id: string) =>
+    adminRequest<{ message: string }>(`/v1/admin/node-services/${id}`, {
+      method: "DELETE",
+    }),
 };

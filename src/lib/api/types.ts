@@ -115,6 +115,8 @@ export interface APIKey {
   project_id: string;
   name: string;
   key_prefix: string;
+  /** Permissions: e.g. instances:read, instances:write, inference:invoke. */
+  scopes?: string[];
   last_used_at: string | null;
   created_at: string;
 }
@@ -136,11 +138,7 @@ export interface CreatedAPIKey {
  * pulling, and the command may not have reached the GPU cluster yet.
  * The console must never treat a create response as a running instance.
  */
-export type InstanceStatus =
-  | "pending"
-  | "running"
-  | "failed"
-  | "terminated";
+export type InstanceStatus = "pending" | "running" | "failed" | "terminated";
 
 export interface Instance {
   id: string;
@@ -294,11 +292,7 @@ export interface BillingProject {
  * `open` is a financial record: void rather than delete, always.
  */
 export type InvoiceStatus =
-  | "draft"
-  | "open"
-  | "paid"
-  | "void"
-  | "uncollectible";
+  "draft" | "open" | "paid" | "void" | "uncollectible";
 
 export interface InvoiceLineItem {
   id?: string;
@@ -391,6 +385,114 @@ export interface Pricing {
   updated_at?: string;
 }
 
+/** Teepin Inference's model catalog entry. model_route is the key callers
+ *  address ("teepin/qwen3-omni-7b", "anthropic/claude-sonnet-5"), not the
+ *  backend's own model id. Distinct from Pricing's llm_price_per_million_*
+ *  fields — those are one flat rate built for Kumbha's own internal
+ *  single-model gateway; a catalog entry here is priced per model, since
+ *  a self-hosted model and a proxied frontier model cost very differently. */
+export interface InferenceModel {
+  model_route: string;
+  display_name: string;
+  cost_class: "own" | "frontier";
+  engine: string;
+  context_window: number;
+  supports_tools: boolean;
+  supports_vision: boolean;
+  supports_audio: boolean;
+  input_price_per_million: number;
+  output_price_per_million: number;
+  /** What the vendor actually charges Teepin, per million tokens — only
+   *  meaningful for cost_class="frontier". Absent, not zero, when unknown. */
+  vendor_input_cost_per_million?: number;
+  vendor_output_cost_per_million?: number;
+  /** Gates routing, not existence — a model can be catalogued before it's
+   *  actually mountable, or retired without losing pricing/audit history. */
+  enabled: boolean;
+  updated_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One backend candidate configured to serve a Kumbha route, ranked
+ *  against any others on the same route by priority (lower tried first).
+ *  Live-editable from Control Center with no redeploy — see
+ *  pkg/kumbha/candidates.go. api_key is deliberately absent from this
+ *  type: it is write-only (KumbhaCandidateInput.api_key), stored in AWS
+ *  Secrets Manager, and never read back — has_secret is the only signal
+ *  the console ever gets that one is set. */
+export interface KumbhaCandidateView {
+  id: string;
+  priority: number;
+  provider_type: "vllm" | "anthropic";
+  base_url: string;
+  model: string;
+  context_window: number;
+  supports_tools: boolean;
+  max_output_tokens: number;
+  enabled: boolean;
+  has_secret: boolean;
+  health: "unknown" | "healthy" | "unhealthy";
+  health_error?: string;
+  checked_at?: string;
+}
+
+/** What Control Center sends to create or update a candidate.
+ *  route_name is required on create, ignored on update (a candidate's
+ *  route is immutable once created — moving it is delete-then-create).
+ *  api_key is write-only: on update, an empty/omitted value leaves
+ *  whatever key is already stored untouched, so editing base_url doesn't
+ *  require re-pasting the key every time. */
+export interface KumbhaCandidateInput {
+  route_name?: string;
+  priority: number;
+  provider_type: "vllm" | "anthropic";
+  base_url: string;
+  model: string;
+  context_window: number;
+  supports_tools: boolean;
+  max_output_tokens: number;
+  enabled: boolean;
+  api_key?: string;
+}
+
+/** One Kumbha route as Control Center sees it — health/enabled at the
+ *  route level (unchanged from before candidates existed) plus, on a
+ *  deployment with candidates configured, the ranked list of backends
+ *  actually serving it. candidates is absent on a route that still only
+ *  has its static, env-var-configured backend. */
+export interface KumbhaRouteView {
+  name: string;
+  enabled: boolean;
+  health: "unknown" | "healthy" | "unhealthy";
+  health_error?: string;
+  checked_at?: string;
+  candidates?: KumbhaCandidateView[];
+}
+
+/** The generic, Control-Center-driven mount/unmount primitive — an
+ *  inference model server today, a teepin-agent binary update planned to
+ *  reuse this same shape later (kind="agent_binary"). config is opaque
+ *  JSON, kind-specific; for kind="inference_model" it holds
+ *  {model_route, engine, model_source, storage_gb, cpu_units, memory_gb,
+ *  gpu_count, backend_model?, max_concurrency?} — NOT a base_url: the
+ *  reachable address is observed_endpoint below, resolved by the
+ *  reconciler after the instance actually starts, never operator-typed. */
+export interface NodeServiceRecord {
+  id: string;
+  node_id: string;
+  kind: "inference_model" | "agent_binary";
+  config: Record<string, unknown>;
+  desired_state: "mounted" | "unmounted";
+  observed_state: "pending" | "mounted" | "unmounted" | "error";
+  observed_error?: string;
+  observed_endpoint?: string;
+  observed_at?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A persisted compute node (home-compute pilot). Consumer-grade capacity
  *  and the datacenter GPU fleet both appear here, distinguished by `class`. */
 export interface Node {
@@ -416,6 +518,12 @@ export interface Node {
   os?: string;
   arch?: string;
   agent_version?: string;
+  /** Operator-provided, set any time after enrollment in Control Centre —
+   *  never derived from IP geolocation. Absent until an operator sets it;
+   *  purely informational (a map pin), no effect on placement or billing. */
+  latitude?: number;
+  longitude?: number;
+  location_label?: string;
   /** enrolled | online | offline | disabled. */
   status: "enrolled" | "online" | "offline" | "disabled";
   last_seen_at?: string;
@@ -559,10 +667,7 @@ export interface CreditTransaction {
  * closed it, it ran out of pre-approved budget, or it sat idle too long.
  */
 export type KumbhaSessionStatus =
-  | "open"
-  | "closed"
-  | "budget_exhausted"
-  | "idle_timeout";
+  "open" | "closed" | "budget_exhausted" | "idle_timeout";
 
 export interface KumbhaSession {
   id: string;
@@ -671,11 +776,16 @@ export interface KumbhaSessionInstance {
  *   silence the customer has to interpret themselves.
  */
 export type KumbhaEventType =
-  | "action"
-  | "observation"
-  | "message"
-  | "error"
-  | "idle";
+  "action" | "observation" | "message" | "error" | "idle" | "tasks";
+
+/** One item in task_tracker's list — mirrors the agent's own Task schema
+ *  (openhands/tools/task_tracker: title/notes/status) exactly, since
+ *  run.py forwards it as-is rather than re-summarizing it into prose. */
+export interface KumbhaTask {
+  title: string;
+  notes: string;
+  status: "todo" | "in_progress" | "done";
+}
 
 export interface KumbhaEvent {
   type: KumbhaEventType;
@@ -686,6 +796,23 @@ export interface KumbhaEvent {
    *  is raw JSON (a DeploymentPlan) rather than prose; see
    *  parseDeploymentPlan below. */
   summary?: string;
+  /** Observation.is_error, forwarded as-is — universal across every tool
+   *  (see run.py's summarize_observation/on_event), so a failed tool call
+   *  reads distinctly from a normal one instead of a uniform icon either
+   *  way. Absent on non-observation events. */
+  is_error?: boolean;
+  /** A unified diff (old vs. new file content), only present on a
+   *  file_editor observation that actually changed something — see
+   *  run.py's diff_lines. Pre-computed server-side (Python's difflib) so
+   *  the console only needs to color +/- lines, not compute the diff. */
+  diff?: string;
+  /** A MessageEvent's extended-thinking text, if the model produced any
+   *  this turn (run.py's summarize_reasoning) — absent, not empty string,
+   *  when there was none. */
+  reasoning?: string;
+  /** Only present on a "tasks" event — task_tracker's full current list,
+   *  replacing whatever was shown before (not a delta/append). */
+  tasks?: KumbhaTask[];
   /** Unix timestamp in seconds (Python's time.time()), not milliseconds —
    *  multiply by 1000 before handing to `Date`. */
   ts: number;
@@ -715,7 +842,10 @@ export interface DeploymentPlan {
  *  JSON) rather than throwing — most observations are plain prose, and
  *  that is the expected, common case here, not an error. */
 export function parseDeploymentPlan(event: KumbhaEvent): DeploymentPlan | null {
-  if (event.type !== "observation" || event.tool !== "present_deployment_plan") {
+  if (
+    event.type !== "observation" ||
+    event.tool !== "present_deployment_plan"
+  ) {
     return null;
   }
   try {
@@ -822,11 +952,7 @@ export interface Bucket {
 }
 
 export type StorageObjectStatus =
-  | "available"
-  | "failed"
-  | "deleted"
-  | "missing"
-  | "orphaned";
+  "available" | "failed" | "deleted" | "missing" | "orphaned";
 
 /** One object in a bucket. There is no `physical_key` here on purpose —
  *  the backend's internal addressing never reaches the API response, see
@@ -844,4 +970,18 @@ export interface StorageObject {
   created_at: string;
   updated_at: string;
   uploaded_at?: string;
+}
+
+/** One model in the public Teepin Inference catalog (GET /v1/models). */
+export interface PublicModel {
+  id: string;
+  display_name: string;
+  context_window?: number;
+  supports_tools: boolean;
+  supports_vision: boolean;
+  supports_audio: boolean;
+  pricing: {
+    input_per_million_tokens: number;
+    output_per_million_tokens: number;
+  };
 }

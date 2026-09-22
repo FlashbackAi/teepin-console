@@ -12,11 +12,20 @@ import { EmptyState, TBody, TD, TH, THead, TR, Table } from "@/components/ui/tab
 import { ApiError } from "@/lib/api/client";
 import { admin } from "@/lib/api/admin";
 import { errorMessage } from "@/lib/api/hooks";
-import { cn, timeAgo } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import type { Node, NodeCapacity } from "@/lib/api/types";
 import { EnrollTokenDialog } from "./enroll-token-dialog";
 import { ReservationDialog } from "./reservation-dialog";
 import { RenameNodeDialog } from "./rename-dialog";
+import { NodeLocationDialog } from "./location-dialog";
+import { NodeMap } from "./node-map";
+import {
+  ClassPill,
+  NodeStatusPill,
+  NotSchedulableBadge,
+  describeCapacity,
+  describeSpecs,
+} from "./node-format";
 
 /**
  * Compute nodes (home-compute pilot).
@@ -31,6 +40,7 @@ export default function ControlCenterNodesPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [reserving, setReserving] = useState<Node | null>(null);
   const [renaming, setRenaming] = useState<Node | null>(null);
+  const [settingLocation, setSettingLocation] = useState<Node | null>(null);
   // When set, opens the token dialog prefilled to regenerate for this node.
   const [regenFor, setRegenFor] = useState<Node | null>(null);
 
@@ -68,6 +78,8 @@ export default function ControlCenterNodesPage() {
       />
 
       <div className="flex flex-col gap-6 p-6">
+        {!featureOff && <NodeMap nodes={nodes.data?.nodes ?? []} />}
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Compute nodes</CardTitle>
@@ -171,6 +183,13 @@ export default function ControlCenterNodesPage() {
                         >
                           New token
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSettingLocation(node)}
+                        >
+                          Location
+                        </Button>
                         {node.status !== "disabled" && (
                           <Button
                             variant="ghost"
@@ -219,6 +238,12 @@ export default function ControlCenterNodesPage() {
       {renaming && (
         <RenameNodeDialog node={renaming} onClose={() => setRenaming(null)} />
       )}
+      {settingLocation && (
+        <NodeLocationDialog
+          node={settingLocation}
+          onClose={() => setSettingLocation(null)}
+        />
+      )}
       {regenFor && (
         <EnrollTokenDialog
           defaultLabel={regenFor.node_name}
@@ -230,87 +255,3 @@ export default function ControlCenterNodesPage() {
   );
 }
 
-// describeCapacity renders "rented / used / free" for a home node. Datacenter
-// nodes and nodes with nothing rented out show a dash.
-function describeCapacity(node: Node, cap?: NodeCapacity): string {
-  if (node.class !== "home") return "—";
-  const rentable = node.rentable_cpu_cores ?? 0;
-  if (rentable === 0 && !cap) return "not offered";
-  if (!cap) return `${rentable} vCPU rented`;
-  return `${cap.rentable_cpu_cores} vCPU rented · ${cap.used_cpu_cores} used · ${cap.free_cpu_cores} free`;
-}
-
-function describeSpecs(node: Node): string {
-  const parts: string[] = [];
-  if (node.cpu_cores) {
-    // A detected P/E split is shown alongside the flat vCPU count rather
-    // than replacing it — the split is informational, and placement still
-    // reasons about total capacity first.
-    const split =
-      node.p_cores && node.p_cores > 0
-        ? ` (${node.p_cores}P/${node.e_cores ?? 0}E)`
-        : "";
-    parts.push(`${node.cpu_cores} vCPU${split}`);
-  }
-  if (node.memory_gb) parts.push(`${node.memory_gb} GB`);
-  // A consumer GPU is shown as an attribute, not sellable VRAM.
-  if (node.gpu_count > 0 && node.gpu_model) {
-    parts.push(`${node.gpu_count}× ${node.gpu_model}`);
-  }
-  return parts.length ? parts.join(" · ") : "—";
-}
-
-function ClassPill({ nodeClass }: { nodeClass: Node["class"] }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium",
-        nodeClass === "home"
-          ? "bg-muted text-muted-foreground"
-          : "bg-muted text-foreground",
-      )}
-    >
-      {nodeClass}
-    </span>
-  );
-}
-
-function NodeStatusPill({ status }: { status: Node["status"] }) {
-  const dot: Record<Node["status"], string> = {
-    online: "bg-success",
-    enrolled: "bg-warning",
-    offline: "bg-muted-foreground/50",
-    disabled: "bg-destructive",
-  };
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", dot[status])}
-        aria-hidden
-      />
-      <span className="text-foreground capitalize">{status}</span>
-    </span>
-  );
-}
-
-/**
- * Shown only when a node is "online" (its agent is connected) but its own
- * Kubernetes was unreachable as of its last report — "online" alone can no
- * longer be read as "can run workloads." Placement already excludes such a
- * node; this is what tells the operator WHY a node they can see is not
- * taking CPU instances.
- */
-function NotSchedulableBadge() {
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-warning text-xs"
-      title="This node's agent is connected, but its local Kubernetes (k3s) is unreachable — it cannot run workloads until that's fixed. New CPU instances will not be placed here."
-    >
-      <span
-        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
-        aria-hidden
-      />
-      not schedulable
-    </span>
-  );
-}

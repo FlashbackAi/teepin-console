@@ -27,12 +27,15 @@ import type {
   RegisterResponse,
   StorageObject,
   UpdateAccountRequest,
+  PublicModel,
   UpdateProjectRequest,
   User,
 } from "./types";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://api.teepin.com";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.teepin.com";
+
+/** The API origin customers point their SDKs at (shown in code snippets). */
+export const API_BASE_URL = BASE_URL;
 
 /** The same origin as BASE_URL, as a WebSocket URL (http->ws,
  *  https->wss) — used only by the terminal's attach socket. */
@@ -211,7 +214,10 @@ async function tryRefresh(): Promise<boolean> {
       });
       if (!response.ok) return false;
       const data = await response.json();
-      if (typeof data?.access_token !== "string" || typeof data?.refresh_token !== "string") {
+      if (
+        typeof data?.access_token !== "string" ||
+        typeof data?.refresh_token !== "string"
+      ) {
         return false;
       }
       tokens.set(data.access_token, data.refresh_token);
@@ -303,6 +309,24 @@ async function request<T>(
 
 export const api = {
   // -------------------------------------------------------------------
+  // Public status — no session, no API key. The server-side query itself
+  // (pkg/nodes.PublicNodeLocations) never selects anything beyond rounded
+  // coordinates plus the operator's own location label (shown publicly
+  // by design — see location-dialog.tsx's own hint to operators), so
+  // `anonymous: true` here isn't just "we don't bother sending a token" —
+  // there is no OTHER customer/operator data this call could expose
+  // regardless of who calls it or how.
+  // -------------------------------------------------------------------
+  publicNodeLocations: () =>
+    request<{
+      locations: {
+        latitude: number;
+        longitude: number;
+        location_label?: string;
+      }[];
+    }>("/v1/status/node-locations", { anonymous: true }),
+
+  // -------------------------------------------------------------------
   // Auth
   // -------------------------------------------------------------------
   register: (body: {
@@ -358,7 +382,10 @@ export const api = {
       method: "DELETE",
     }),
 
-  createApiKey: (projectId: string, body: { name: string }) =>
+  createApiKey: (
+    projectId: string,
+    body: { name: string; scopes?: string[] },
+  ) =>
     request<CreatedAPIKey>(`/v1/projects/${projectId}/api-keys`, {
       method: "POST",
       body,
@@ -456,6 +483,12 @@ export const api = {
   // key containing "/" would otherwise be ambiguous against the route
   // itself) — see pkg/api/objectstore_handlers.go's own comment on why.
   // -------------------------------------------------------------------
+  inference: {
+    /** Enabled models this login may call, with their per-token prices. */
+    listModels: () =>
+      request<{ object: "list"; data: PublicModel[] }>("/v1/models"),
+  },
+
   storage: {
     listBuckets: () =>
       request<{ buckets: Bucket[] }>("/v1/storage/buckets", {
@@ -546,9 +579,14 @@ export const api = {
           "PUT",
           `${BASE_URL}/v1/storage/buckets/${encodeURIComponent(bucket)}/object?${qs}`,
         );
-        if (tokens.access) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access}`);
-        if (activeProject.current) xhr.setRequestHeader("X-Project-ID", activeProject.current);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        if (tokens.access)
+          xhr.setRequestHeader("Authorization", `Bearer ${tokens.access}`);
+        if (activeProject.current)
+          xhr.setRequestHeader("X-Project-ID", activeProject.current);
+        xhr.setRequestHeader(
+          "Content-Type",
+          file.type || "application/octet-stream",
+        );
 
         xhr.upload.onprogress = (event) => {
           if (onProgress && event.lengthComputable) {
@@ -560,7 +598,12 @@ export const api = {
             try {
               resolve(JSON.parse(xhr.responseText) as StorageObject);
             } catch {
-              reject(new ApiError(xhr.status, "Upload succeeded but the response could not be parsed"));
+              reject(
+                new ApiError(
+                  xhr.status,
+                  "Upload succeeded but the response could not be parsed",
+                ),
+              );
             }
             return;
           }
@@ -573,7 +616,8 @@ export const api = {
           }
           reject(new ApiError(xhr.status, message, tokens.epoch));
         };
-        xhr.onerror = () => reject(new ApiError(0, "Network error during upload"));
+        xhr.onerror = () =>
+          reject(new ApiError(0, "Network error during upload"));
         xhr.send(file);
       });
     },
@@ -608,8 +652,7 @@ export const api = {
 
   // Remaining account credit (spent before the card is charged). Shown on
   // the billing overview when non-zero.
-  creditBalance: () =>
-    request<{ balance: number }>("/v1/billing/credits"),
+  creditBalance: () => request<{ balance: number }>("/v1/billing/credits"),
 
   // -------------------------------------------------------------------
   // Payment methods — account-scoped, plain JWT (a card belongs to the
@@ -688,19 +731,25 @@ export const api = {
    *  conversation (see build/[id]/page.tsx's own doc comment on why
    *  that's separate, unbuilt work). */
   listKumbhaSessions: () =>
-    request<{ sessions: KumbhaSession[]; count: number }>("/v1/kumbha/sessions", {
-      projectScoped: true,
-    }),
+    request<{ sessions: KumbhaSession[]; count: number }>(
+      "/v1/kumbha/sessions",
+      {
+        projectScoped: true,
+      },
+    ),
 
   /** Bulk-removes build sessions from history — best-effort, not
    *  all-or-nothing: a still-open (actively building) session in the
    *  batch comes back in `skipped`, not as a failure of the whole call. */
   deleteKumbhaSessions: (ids: string[]) =>
-    request<{ deleted: string[]; skipped: string[] }>("/v1/kumbha/sessions/bulk-delete", {
-      method: "POST",
-      body: { ids },
-      projectScoped: true,
-    }),
+    request<{ deleted: string[]; skipped: string[] }>(
+      "/v1/kumbha/sessions/bulk-delete",
+      {
+        method: "POST",
+        body: { ids },
+        projectScoped: true,
+      },
+    ),
 
   /** Flips the pre-deploy cost-approval gate — called when the customer
    *  approves the itemised Deployment Plan shown in the activity feed. */
@@ -906,10 +955,17 @@ export const api = {
     if (tokens.access) headers.Authorization = `Bearer ${tokens.access}`;
     if (activeProject.current) headers["X-Project-ID"] = activeProject.current;
 
-    const response = await fetch(`${BASE_URL}/v1/kumbha/sessions/${id}/screenshot`, { headers });
+    const response = await fetch(
+      `${BASE_URL}/v1/kumbha/sessions/${id}/screenshot`,
+      { headers },
+    );
     if (response.status === 404) return null;
     if (!response.ok) {
-      throw new ApiError(response.status, `Request failed (${response.status})`, tokens.epoch);
+      throw new ApiError(
+        response.status,
+        `Request failed (${response.status})`,
+        tokens.epoch,
+      );
     }
     const blob = await response.blob();
     return URL.createObjectURL(blob);

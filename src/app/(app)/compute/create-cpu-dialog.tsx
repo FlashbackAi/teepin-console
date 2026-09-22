@@ -45,17 +45,21 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
   const [memoryGB, setMemoryGB] = useState(4);
   const [command, setCommand] = useState("");
   const [storageGB, setStorageGB] = useState("");
-  // Optional, advanced P/E-core preference — left unset (the common case),
-  // the platform either bills via cpu_units alone (a node with no detected
-  // split) or picks a proportional default. Only pCoresInput is state;
-  // eCoresInput is DERIVED as the remainder of cpuUnits so the two can
-  // never disagree with the vCPU count above.
-  const [pCoresInput, setPCoresInput] = useState("");
-  const wantsPESplit = pCoresInput.trim() !== "";
-  const pCoresValue = wantsPESplit
-    ? Math.max(0, Math.min(cpuUnits, Number(pCoresInput) || 0))
-    : 0;
-  const eCoresValue = wantsPESplit ? cpuUnits - pCoresValue : 0;
+  // Advanced P/E-core preference — DISABLED (2026-09-16): the split only
+  // ever affected billing/capacity accounting, never actual CPU
+  // scheduling — nothing in pkg/cluster reads PCoresUsed/ECoresUsed when
+  // building the pod spec, so a container is never pinned to specific
+  // physical cores regardless of what a customer picks here. Offering a
+  // choice that doesn't materially change what you get was judged worse
+  // than not offering it, until real cpuset-level enforcement exists.
+  // Re-enable by uncommenting this block, the matching <details> section
+  // below, and the p_cores/e_cores fields in submit's payload.
+  // const [pCoresInput, setPCoresInput] = useState("");
+  // const wantsPESplit = pCoresInput.trim() !== "";
+  // const pCoresValue = wantsPESplit
+  //   ? Math.max(0, Math.min(cpuUnits, Number(pCoresInput) || 0))
+  //   : 0;
+  // const eCoresValue = wantsPESplit ? cpuUnits - pCoresValue : 0;
   // Manual port entry — only ever used/shown when auto-detection finds
   // nothing (see PortDetection). When the platform already knows the
   // port (the common case: nginx, postgres, redis, ...), the customer is
@@ -106,8 +110,8 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
         args: parts.length > 1 ? parts.slice(1) : undefined,
         ports: containerPort ? [{ container: containerPort }] : undefined,
         storage_gb: storageGB.trim() ? Number(storageGB) : undefined,
-        p_cores: wantsPESplit ? pCoresValue : undefined,
-        e_cores: wantsPESplit ? eCoresValue : undefined,
+        // p_cores/e_cores omitted — see the commented-out Advanced P/E-core
+        // block above for why. Always "no preference" while disabled.
       },
       {
         onSuccess: (instance) => {
@@ -321,6 +325,10 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
 
+        {/* Advanced P/E-core split control — DISABLED, see the state
+            declarations above for why. Left here, commented out, so
+            re-enabling is a straight uncomment once real cpuset
+            enforcement exists to back it up.
         {!noCapacity && (
           <details className="hairline rounded-md border-border px-3 py-2.5">
             <summary className="text-muted-foreground cursor-pointer text-xs font-medium">
@@ -349,6 +357,7 @@ export function CreateCPUInstanceDialog({ onClose }: { onClose: () => void }) {
             </div>
           </details>
         )}
+        */}
 
         {fits && (
           <div className="hairline flex items-baseline justify-between rounded-md border-border bg-muted/50 px-3 py-2.5">
