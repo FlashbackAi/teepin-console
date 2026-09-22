@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "TEEPIN Console",
-  description: "GPU compute on Teepin Web Services",
+  description: "Teepin Web Services",
 };
 
 export default function RootLayout({
