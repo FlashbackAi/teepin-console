@@ -796,6 +796,15 @@ export interface KumbhaEvent {
    *  is raw JSON (a DeploymentPlan) rather than prose; see
    *  parseDeploymentPlan below. */
   summary?: string;
+  /** Only present on a "message" event — the SDK's own SourceType
+   *  (event.source), forwarded as-is by run.py. Read this to tell a
+   *  customer's own message from the agent's reply; never derive it by
+   *  parsing `summary`'s text — that only ever worked by coincidence, via
+   *  a debug-string prefix that vanished the moment summary stopped being
+   *  the SDK's truncated str(event) (found live 2026-09-22: the switch to
+   *  full untruncated text silently broke role detection, since the
+   *  prefix was never a stable field). */
+  role?: "user" | "agent" | "environment" | "hook";
   /** Observation.is_error, forwarded as-is — universal across every tool
    *  (see run.py's summarize_observation/on_event), so a failed tool call
    *  reads distinctly from a normal one instead of a uniform icon either
